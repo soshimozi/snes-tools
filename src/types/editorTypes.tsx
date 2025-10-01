@@ -14,8 +14,15 @@ export type HistoryEntry = {
 
 export type MetaSpriteEntry = {
   id: string;
+  tileSheetIndex: number;
   tileIndex: number;
   paletteIndex: number;
   x: number;
   y: number;
+  h: boolean;
+  v: boolean;
+  r: number;
 };
+
+
+export type Cell = { row: number; col: number } | null;

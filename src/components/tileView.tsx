@@ -1,5 +1,6 @@
 import React from "react";
 import { Palette, Tile } from "@/types/editorTypes";
+import { TILE_H, TILE_W } from "@/app/constants";
 
 // export type Tile = number[][]; // [y][x] => 0..15 palette index
 
@@ -20,7 +21,5 @@ const TileView: React.FC<{tile: Tile, palette: Palette, tileIndex: number, scale
 
 }
 
-export const TILE_W = 8;
-export const TILE_H = 8;
 
 export default TileView;
