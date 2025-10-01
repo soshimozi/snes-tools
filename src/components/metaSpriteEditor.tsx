@@ -102,6 +102,7 @@ export function MetaSpriteEditor(
       }
     });
 
+    
     if(highlightSelected && selected) {
       const row = selected.y;
       const col = selected.x;
