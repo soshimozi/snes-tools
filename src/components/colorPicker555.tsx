@@ -59,11 +59,27 @@ type Props = {
 };
 
 export default function ColorPicker555Controlled({ value, onColorChange, className }: Props) {
+
   // Normalize/validate the incoming value
   const normalizedHex = useMemo(() => {
     const parsed = parseHexColor(value);
-    console.log('normalizedHex: ', parsed)
     return parsed ? toHexColor(parsed.r, parsed.g, parsed.b) : "#000000";
+  }, [value]);
+
+  const normalizedBGR = useMemo(() => {
+    const parsed = parseHexColor(value);
+    if(!parsed) return null;
+
+    const {r, g, b} = parsed;
+
+    const normalizedR = r & 0xf8;
+    const normalizedG = g & 0xf8;
+    const normalizedB = b & 0xf8;
+
+    const bgrHexColor = ((normalizedB >> 3) << 10) | ((normalizedG >> 3) << 5) | ((normalizedR >> 3) & 0x1f);
+
+    return bgrHexColor;
+
   }, [value]);
 
   const emit = useCallback(
@@ -77,7 +93,20 @@ export default function ColorPicker555Controlled({ value, onColorChange, classNa
 
   // Color picker changed
   const onPick = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    emit(e.target.value.toUpperCase());
+
+    const color = parseHexColor(e.target.value.toUpperCase());
+
+    if(!color) return;
+
+    const {r, g, b} = color;
+
+    // const normalizedR = r & 0xf8;
+    // const normalizedG = g & 0xf8;
+    // const normalizedB = b & 0xf8;
+
+    const normalizedHexColor = toHexColor(r & 0xf8, g & 0xf8, b & 0xf8);
+    
+    emit(normalizedHexColor);
   }, [emit]);
 
 

@@ -3,7 +3,7 @@
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { DraggableWindow } from "./draggableWindow";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faArrowDown, faArrowLeft, faArrowRight, faArrowsLeftRight, faArrowsUpDown, faArrowUp, faChevronUp, faEraser, faEyeDropper, faFillDrip, faPaintBrush, faRotateBackward, faRotateForward, IconDefinition } from "@fortawesome/free-solid-svg-icons";
+import { faArrowDown, faArrowDownUpAcrossLine, faArrowLeft, faArrowRight, faArrowsLeftRight, faArrowsUpDown, faArrowUp, faChevronUp, faEraser, faEyeDropper, faFillDrip, faPaintBrush, faRotateBackward, faRotateForward, IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { Cell, HistoryEntry, MetaSpriteEntry, Palette, Tile, Tool } from "@/types/editorTypes";
 import { v4 as uuid } from "uuid";
 import { MultiSelect } from "./MultiSelect";
@@ -131,7 +131,7 @@ function keyOf(e: MetaSpriteEntry) {
 export default function SNESpriteEditor() {
   // Core state
   //const [palette, setPalette] = useState<Palette>(() => defaultPalette());
-  const [tiles, setTiles] = useState<Tile[]>(makeTiles());
+  const [tiles, setTiles] = useState<number[][][]>(makeTiles());
   const [currentTile, setCurrentTile] = useState(0);
   const [currentColor, setCurrentColor] = useState(1);
   const [zoom, setZoom] = useState(32); // pixel size in px
@@ -261,25 +261,81 @@ export default function SNESpriteEditor() {
     });
   }, [currentTile]);
 
-  const floodFill = useCallback((x: number, y: number, target: number, replacement: number) => {
-    if (target === replacement) return;
+const floodFill = useCallback((x: number, y: number, _target: number | undefined, replacementRaw: number) => {
+  const tileIndex = currentTile;                 // snapshot to avoid stale closure
+  const replacement = replacementRaw & 0xF;
+
+  setTiles(prev => {
+    const width = TILE_W, height = TILE_H;
+
+    // Defensive bounds check on the seed pixel
+    if (x < 0 || y < 0 || x >= width || y >= height) return prev;
+
+    // Read the true target from state (ignore the passed-in if any)
+    const startTarget = prev[tileIndex][y][x] & 0xF;
+
+    // Nothing to do if already that color
+    if (startTarget === replacement) return prev;
+
+    // Clone (tile -> rows -> cells)
+    const next = prev.map(t => t.map(r => r.slice()));
+
     const visited = new Set<string>();
-    const q: [number, number][] = [[x, y]];
-    setTiles(prev => {
-      const next = prev.map(t => t.map(r => r.slice()));
-      while (q.length) {
-        const [cx, cy] = q.shift()!;
-        const key = `${cx},${cy}`;
-        if (visited.has(key)) continue;
-        visited.add(key);
-        if (cx < 0 || cy < 0 || cx >= TILE_W || cy >= TILE_H) continue;
-        if (next[currentTile][cy][cx] !== target) continue;
-        next[currentTile][cy][cx] = replacement & 0xF;
-        q.push([cx+1, cy]); q.push([cx-1, cy]); q.push([cx, cy+1]); q.push([cx, cy-1]);
-      }
-      return next;
-    });
-  }, [currentTile]);
+    const stack: [number, number][] = [[x, y]];
+
+    while (stack.length) {
+      const [cx, cy] = stack.pop()!;
+      if (cx < 0 || cy < 0 || cx >= width || cy >= height) continue;
+
+      const key = `${cx},${cy}`;
+      if (visited.has(key)) continue;
+
+      // Only fill matching target pixels
+      if ((next[tileIndex][cy][cx] & 0xF) !== startTarget) continue;
+
+      visited.add(key);
+      next[tileIndex][cy][cx] = replacement;
+
+      // 4-way neighbors
+      stack.push([cx + 1, cy]);
+      stack.push([cx - 1, cy]);
+      stack.push([cx, cy + 1]);
+      stack.push([cx, cy - 1]);
+    }
+
+    return next;
+  });
+}, [currentTile]);
+  
+  // const floodFill = useCallback((x: number, y: number, target: number, replacement: number) => {
+    
+  //   console.log("Flood fill => target: ", target, " replacement: ", replacement);
+  //   if (target === replacement) return;
+  //   const visited = new Set<string>();
+  //   const q: [number, number][] = [[x, y]];
+  //   setTiles(prev => {
+  //     const next = prev.map(t => t.map(r => r.slice()));
+  //     while (q.length) {
+  //       const [cx, cy] = q.shift()!;
+  //       const key = `${cx},${cy}`;
+
+  //       console.log('key: ', key);
+
+  //       if (visited.has(key)) continue;
+
+  //       console.log('adding to visited: ', key);
+
+  //       visited.add(key);
+  //       if (cx < 0 || cy < 0 || cx >= TILE_W || cy >= TILE_H) continue;
+  //       if (next[currentTile][cy][cx] !== target) continue;
+
+  //       console.log('setting color: ', replacement);
+  //       next[currentTile][cy][cx] = replacement & 0xF;
+  //       q.push([cx+1, cy]); q.push([cx-1, cy]); q.push([cx, cy+1]); q.push([cx, cy-1]);
+  //     }
+  //     return next;
+  //   });
+  // }, [currentTile]);
 
   // Mouse interactions
   const onCellDown = (x: number, y: number) => (e: React.MouseEvent) => {
@@ -604,7 +660,7 @@ export default function SNESpriteEditor() {
                         onColorChange={(nextHex) => {
                           setPalettes(prev =>
                             prev.map((palette, pi) => 
-                            pi === currentPalette ? 
+                            pi === currentPalette || currentColor === 0 ? 
                               palette.map((hex, ci) => (ci === currentColor ? nextHex : hex))
                               : palette
                             ))
