@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NES Sprite & CHR Editor
 
-## Getting Started
+A modern web-based tool for creating and editing NES CHR files, palettes, tiles, and meta sprites.  
+Built in **TypeScript + React (with TailwindCSS)**, inspired by classic NES tools such as [nesdoug’s SPEZ](https://github.com/nesdoug).
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## ✨ Features
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 🎨 Palette Editor
+- Supports **multiple palettes** that the user can select and edit.
+- Palette colors stored in `RGB555` format with automatic conversion to/from hex (`#rrggbb`).
+- Built-in helpers:
+  - `getRGB(index)` → returns `[r, g, b]`.
+  - `getRGBString(index)` → returns `"#rrggbb"`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 🧱 Tile Sheets
+- Supports **2 tile sheets** simultaneously.
+- Tiles are editable at the pixel level (16×16 grid, 4bpp).
+- Editing tools:
+  - Single-pixel draw/erase.
+  - **Flood fill** support.
+  - Horizontal/vertical flip.
+  - Left/right rotation.
+  - Shift operations with wrap-around (not white-fill).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 🖼️ Meta Sprites
+- Create and manage up to **100 meta sprites**.
+- Each meta sprite can reference tiles across both sheets.
+- Multi-line labeling and drag/drop support.
+- Assign palettes per sprite.
 
-## Learn More
+### 🗂️ File I/O
+- Load/save CHR files (`.chr`) via drag & drop.
+- Export/import JSON metadata.
+- Export tile/palette data as `.png` for previews.
+- Pure binary palette export for direct use with **ca65** assembler via `.incbin`.
 
-To learn more about Next.js, take a look at the following resources:
+### 🖥️ User Interface
+- Built with **React + TailwindCSS** for a clean, modern look.
+- Grid-based tile and sprite editors with mouse interaction.
+- Color picker input with automatic normalization (bit 15 cleared for NES compatibility).
+- Keyboard shortcuts for fast editing (planned).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## ⚡ Roadmap
+- Add undo/redo stack (per tile + per meta sprite).
+- Sprite preview window with live animation.
+- Support for name tables and OAM editing.
+- Improved palette management UI.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🙏 Attribution
+This project was **heavily influenced by [nesdoug’s SPEZ](https://github.com/nesdoug)**, which laid much of the groundwork for NES sprite and CHR editing.  
+Special thanks to the NESdev community for continued documentation and inspiration.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## 📜 License
+MIT License. Free to use and modify.
