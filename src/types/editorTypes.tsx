@@ -26,3 +26,12 @@ export type MetaSpriteEntry = {
 
 
 export type Cell = { row: number; col: number } | null;
+
+export type Metasprite = {
+  name: string;
+  entries: MetaSpriteEntry[]
+};
+
+export type Sheet = {
+  tiles: number[][][]
+}

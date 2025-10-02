@@ -1,16 +1,17 @@
 "use client";
 import { SCALE } from "@/app/constants";
-import { MetaSpriteEntry, Tile } from "@/types/editorTypes";
+import { MetaSpriteEntry, Sheet, Tile } from "@/types/editorTypes";
 import React, { useRef, useCallback, useEffect } from "react";
 
 export function MetaSpriteEditor(
   {
-    entries, onClick, palettes, tiles, selected, highlightSelected = false, drawGrid = false
+    entries, onClick, palettes, tilesheets, selected, highlightSelected = false, drawGrid = false
   }: {
     entries: MetaSpriteEntry[];
     onClick: ({row, col} : {row: number, col: number}) => void;
     palettes: string[][];
-    tiles: Tile[];
+    //tiles: Tile[];
+    tilesheets: Sheet[];
     selected?: MetaSpriteEntry;
     highlightSelected?: boolean;
     drawGrid?: boolean;
@@ -88,7 +89,7 @@ export function MetaSpriteEditor(
 
       const dx = e.x; // * 8 * scale;
       const dy = e.y; // * 8 * scale;
-      const tile = tiles[e.tileIndex];
+      const tile = tilesheets[e.tileSheetIndex].tiles[e.tileIndex];
 
       for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
@@ -148,7 +149,7 @@ export function MetaSpriteEditor(
       ctx.setLineDash([]);
     }
 
-  }, [entries, palettes, tiles, selected, highlightSelected, drawGrid]);
+  }, [entries, palettes, tilesheets, selected, highlightSelected, drawGrid]);
 
   useEffect(() => { drawMeta(); }, [drawMeta]);
 

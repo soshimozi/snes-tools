@@ -4,7 +4,7 @@ import React, { Fragment, useCallback, useEffect, useMemo, useState } from "reac
 import { DraggableWindow } from "./draggableWindow";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faArrowDown, faArrowDownUpAcrossLine, faArrowLeft, faArrowRight, faArrowsLeftRight, faArrowsUpDown, faArrowUp, faChevronUp, faEraser, faEyeDropper, faFillDrip, faPaintBrush, faRotateBackward, faRotateForward, IconDefinition } from "@fortawesome/free-solid-svg-icons";
-import { Cell, HistoryEntry, MetaSpriteEntry, Palette, Tile, Tool } from "@/types/editorTypes";
+import { Cell, HistoryEntry, Metasprite, MetaSpriteEntry, Palette, Sheet, Tile, Tool } from "@/types/editorTypes";
 import { v4 as uuid } from "uuid";
 import { MultiSelect } from "./MultiSelect";
 import { SingleSelectList } from "./singleSelectList";
@@ -110,14 +110,6 @@ export class Palettes {
 }
 
 
-type Metasprite = {
-  name: string;
-  entries: MetaSpriteEntry[]
-};
-
-type Tilesheet = {
-  tiles: number[][][]
-}
 
 
 function keyOfMetaSpriteEntry(e: MetaSpriteEntry) {
@@ -125,7 +117,32 @@ function keyOfMetaSpriteEntry(e: MetaSpriteEntry) {
 }
 
 export default function SNESpriteEditor() {
-  const [tiles, setTiles] = useState<number[][][]>(makeTiles());
+  //const [tiles, setTiles] = useState<number[][][]>(makeTiles());
+  const [tilesheets, setTilesheets] = useState<Sheet[]>([
+    {
+      tiles: makeTiles()
+    },
+    {
+      tiles: makeTiles()
+    }
+  ]);
+
+  const [metasprites, setMetaSprites] = useState<Metasprite[]>(() => {
+    const entries : Metasprite[] = [];
+    for(let i = 0; i < 100; i++) {
+      entries.push(
+        {
+          name: `Metasprite ${i.toString().padStart(2, "0")}`,
+          entries: []
+        }
+      )
+    }
+    return entries;
+  })
+
+  const [currentMetasprite, setCurrentMetasprite] = useState(0);
+  const [currentTilesheet, setCurrentTilesheet] = useState(0);
+
   const [currentTile, setCurrentTile] = useState(0);
   const [currentColor, setCurrentColor] = useState(1);
   const [tool, setTool] = useState<Tool>({ type: "brush", icon: faFillDrip });
@@ -133,8 +150,6 @@ export default function SNESpriteEditor() {
   const [selectedTileCell, setSelectedTileCell] = useState<Cell | null>(null);
   const [showSpriteEditor, setShowSpriteEditor] = useState(false);
   const [highlightSelected, setHighlightSelected] = useState(true);
-
-  const [metaSpriteEntries, setMetaSpriteEntries] = useState<MetaSpriteEntry[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawGrid, setDrawGrid] = useState(true);
@@ -163,16 +178,28 @@ export default function SNESpriteEditor() {
 
   const [currentPalette, setCurrentPalette] = useState(0);
 
+
+  const currentMetaSpriteEntries = useMemo(
+    () =>
+       metasprites[currentMetasprite].entries,
+  [currentMetasprite, metasprites])
+
   // Build multi-line options for the list (memoized).
   const options = useMemo(
     () =>
-      metaSpriteEntries.map((entry) => ({
+      currentMetaSpriteEntries.map((entry) => ({
         value: keyOfMetaSpriteEntry(entry),
         lines: [
           `Tile: ${entry.tileIndex}, Sheet: ${entry.tileSheetIndex}, Palette: ${entry.paletteIndex}, x: ${entry.x}, y: ${entry.y}, h: ${entry.h ? 1 : 0}, v: ${entry.v ? 1 : 0}, r: ${entry.r}`,
         ],
       })),
-    [metaSpriteEntries]
+    [currentMetaSpriteEntries]
+  );
+
+
+
+  const currentTiles = useMemo(() =>
+    tilesheets[currentTilesheet].tiles, [tilesheets, currentTilesheet]
   );
 
   // Prune selection if it no longer exists after an update
@@ -185,8 +212,8 @@ export default function SNESpriteEditor() {
   // (Optional) get the selected entry
   const selectedEntry = useMemo(() => {
     const id = selectedId;
-    return id ? metaSpriteEntries.find((e) => keyOfMetaSpriteEntry(e) === id) ?? undefined : undefined;
-  }, [selectedId, metaSpriteEntries]);
+    return id ? currentMetaSpriteEntries.find((e) => keyOfMetaSpriteEntry(e) === id) ?? undefined : undefined;
+  }, [selectedId, currentMetaSpriteEntries]);
 
   const currentRed = useMemo(() => {
     const colorHex = palettes[currentPalette][currentColor];
@@ -231,62 +258,84 @@ export default function SNESpriteEditor() {
   }
 
   // Keyboard shortcuts
-  const tile = tiles[currentTile];
+  const tile = currentTiles[currentTile];
 
   // Painting ops
   const setPixel = useCallback((x: number, y: number, value: number) => {
-    setTiles(prev => {
-      const next = prev.map(t => t.map(row => row.slice()));
-      next[currentTile][y][x] = value & 0xF;
-      return next;
-    });
-  }, [currentTile]);
 
-  const floodFill = useCallback((x: number, y: number, _target: number | undefined, replacementRaw: number) => {
+    setTilesheets(prev => {
+
+      return prev.map((item, idx) => {
+        if (idx !== currentTilesheet) return item;
+
+        const next = item.tiles.map(t => t.map(row => row.slice()));
+        next[currentTile][y][x] = value & 0xF;
+
+        return {
+          ...item,
+          tiles: next
+        }
+      })
+    })
+
+  }, [currentTilesheet, currentTile]);
+
+  const floodFill = useCallback((x: number, y: number, _target: number | undefined, replacementRaw: number) =>{
     const tileIndex = currentTile;                 // snapshot to avoid stale closure
+    const tilesheetIndex = currentTilesheet
     const replacement = replacementRaw & 0xF;
 
-    setTiles(prev => {
-      const width = TILE_W, height = TILE_H;
+    setTilesheets(prev => {
+      return prev.map((item, idx) => {
+        if (idx !== tilesheetIndex) return item;
 
-      // Defensive bounds check on the seed pixel
-      if (x < 0 || y < 0 || x >= width || y >= height) return prev;
+        const tiles = item.tiles.map(t => t.map(row => row.slice()));
+        const width = TILE_W, height = TILE_H;
 
-      // Read the true target from state (ignore the passed-in if any)
-      const startTarget = prev[tileIndex][y][x] & 0xF;
+        // Defensive bounds check on the seed pixel
+        if (x < 0 || y < 0 || x >= width || y >= height) return item;
 
-      // Nothing to do if already that color
-      if (startTarget === replacement) return prev;
+        // Read the true target from state (ignore the passed-in if any)
+        const startTarget = tiles[tileIndex][y][x] & 0xF;
 
-      // Clone (tile -> rows -> cells)
-      const next = prev.map(t => t.map(r => r.slice()));
+        // Nothing to do if already that color
+        if (startTarget === replacement) return item;
 
-      const visited = new Set<string>();
-      const stack: [number, number][] = [[x, y]];
+        // Clone (tile -> rows -> cells)
+        const next = tiles.map(t => t.map(r => r.slice()));
 
-      while (stack.length) {
-        const [cx, cy] = stack.pop()!;
-        if (cx < 0 || cy < 0 || cx >= width || cy >= height) continue;
+        const visited = new Set<string>();
+        const stack: [number, number][] = [[x, y]];
 
-        const key = `${cx},${cy}`;
-        if (visited.has(key)) continue;
+        while (stack.length) {
+          const [cx, cy] = stack.pop()!;
+          if (cx < 0 || cy < 0 || cx >= width || cy >= height) continue;
 
-        // Only fill matching target pixels
-        if ((next[tileIndex][cy][cx] & 0xF) !== startTarget) continue;
+          const key = `${cx},${cy}`;
+          if (visited.has(key)) continue;
 
-        visited.add(key);
-        next[tileIndex][cy][cx] = replacement;
+          // Only fill matching target pixels
+          if ((next[tileIndex][cy][cx] & 0xF) !== startTarget) continue;
 
-        // 4-way neighbors
-        stack.push([cx + 1, cy]);
-        stack.push([cx - 1, cy]);
-        stack.push([cx, cy + 1]);
-        stack.push([cx, cy - 1]);
-      }
+          visited.add(key);
+          next[tileIndex][cy][cx] = replacement;
 
-      return next;
-    });
-  }, [currentTile]);
+          // 4-way neighbors
+          stack.push([cx + 1, cy]);
+          stack.push([cx - 1, cy]);
+          stack.push([cx, cy + 1]);
+          stack.push([cx, cy - 1]);
+        }
+
+        return {
+          ...item,
+          tiles: next
+        }        
+      })
+    })
+
+  }, [currentTile, currentTilesheet])
+
 
   // Mouse interactions
   const onCellDown = (x: number, y: number) => (e: React.MouseEvent) => {
@@ -318,25 +367,6 @@ export default function SNESpriteEditor() {
 
   const stopStroke = () => setIsMouseDown(false);
 
-  // Tile ops
-  const addTile = () => {
-    setTiles(t => [...t, makeBlankTile()]);
-    setCurrentTile(i => i + 1);
-  };
-
-  const duplicateTile = () => {
-    setTiles(t => [...t, t[currentTile].map(row => row.slice())]);
-    setCurrentTile(tiles.length);
-  };
-
-  const clearTile = () => {
-    setTiles(prev => {
-      const next = prev.map(t => t.map(row => row.slice()));
-      next[currentTile] = makeBlankTile();
-      return next;
-    });
-  };
-
   // Context menu disable for right-click erase
   useEffect(() => {
     const prevent = (e: MouseEvent) => e.preventDefault();
@@ -346,12 +376,25 @@ export default function SNESpriteEditor() {
 
 
   const transformTile = useCallback((fn: (src: Tile) => Tile) => {
-    setTiles(prev => {
-      const next = prev.map(t => t.map(r => r.slice()));
-      next[currentTile] = fn(next[currentTile]);
-      return next;
-    });
-  }, [currentTile]);
+
+    console.log('transformTile: ', currentTilesheet);
+    
+    setTilesheets(prev => {
+
+      return prev.map((item, idx) => {
+        if (idx !== currentTilesheet) return item;
+
+        const next = item.tiles.map(t => t.map(row => row.slice()));
+        next[currentTile] = fn(next[currentTile]);
+
+        return {
+          ...item,
+          tiles: next
+        }
+      })
+    })
+
+  }, [currentTile, currentTilesheet]);
 
   const flipTileH = () => transformTile((src) => {
     const out = makeBlankTile();
@@ -379,46 +422,100 @@ export default function SNESpriteEditor() {
 
   const shiftTile = (src: Tile, dx: number, dy: number) => {
     const wrap8 = (n: number) => (((n % 8) + 8) % 8);
-      const out = makeBlankTile();
-      for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-          const nx = wrap8(x + dx);
-          const ny = wrap8(y + dy);
-          out[ny][nx] = src[y][x];
-        }
+    const out = makeBlankTile();
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        const nx = wrap8(x + dx);
+        const ny = wrap8(y + dy);
+        out[ny][nx] = src[y][x];
       }
-      return out;
+    }
+    return out;
   };
 
+  // need to do this with collection
   const shiftMetaSprite = (dx: number, dy: number) => {
 
     const scale = SCALE * 8 * 16;
     const wrap = (n: number) => (((n % scale) + scale) % scale);
 
-    setMetaSpriteEntries(prev =>
-      prev.map(item =>
-        item.id === selectedId ? { ...item, x: wrap(item.x + dx), y: wrap(item.y + dy) } : item
-      )
-    );
+    setMetaSprites(prev => {
+
+      return prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
+
+        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, x: wrap(entry.x + dx), y: wrap(entry.y + dy)} : entry);
+
+        return {
+          ...item,
+          entries: updated
+        }
+      })
+    })                          
+
 
   };
 
+  // need to do this with collection
   const deleteAll = () => {
-    setMetaSpriteEntries([]);
+    setMetaSprites(prev => {
+
+      return prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
+
+        return {
+          ...item,
+          entries: []
+        }
+      })
+    })                          
+
   }
 
   const flipHorizontal = () => {
     if (!selectedId) return;
 
-    setMetaSpriteEntries(prev =>
-      prev.map(item => item.id === selectedId ? { ...item, h: !item.h } : item))
+    // need to do this with collection
+    // setMetaSpriteEntries(prev =>
+    //   prev.map(item => item.id === selectedId ? { ...item, h: !item.h } : item))
+
+    setMetaSprites(prev => {
+
+      return prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
+
+        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, h: !entry.h} : entry);
+
+        return {
+          ...item,
+          entries: updated
+        }
+      })
+    })                          
+
   }
 
   const flipVertical = () => {
     if (!selectedId) return;
 
-    setMetaSpriteEntries(prev =>
-      prev.map(item => item.id === selectedId ? { ...item, v: !item.v } : item))
+    // // need to do this with collection
+    // setMetaSpriteEntries(prev =>
+    //   prev.map(item => item.id === selectedId ? { ...item, v: !item.v } : item))
+
+    setMetaSprites(prev => {
+
+      return prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
+
+        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, v: !entry.v} : entry);
+
+        return {
+          ...item,
+          entries: updated
+        }
+      })
+    })                          
+
 
   }
 
@@ -426,9 +523,25 @@ export default function SNESpriteEditor() {
     if (!selectedId) return;
 
 
-    setMetaSpriteEntries(prev =>
-      prev.map(item => item.id === selectedId ? { ...item, r: (item.r - 1) % 4 } : item)
-    )
+    // need to do this with collection
+    // setMetaSpriteEntries(prev =>
+    //   prev.map(item => item.id === selectedId ? { ...item, r: (item.r - 1) % 4 } : item)
+    // )
+
+    setMetaSprites(prev => {
+
+      return prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
+
+        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, r: (entry.r - 1) % 4} : entry);
+
+        return {
+          ...item,
+          entries: updated
+        }
+      })
+    })                          
+
   }
 
 
@@ -436,9 +549,25 @@ export default function SNESpriteEditor() {
     if (!selectedId) return;
 
 
-    setMetaSpriteEntries(prev =>
-      prev.map(item => item.id === selectedId ? { ...item, r: (item.r + 1) % 4 } : item)
-    )
+    // need to do this with collection
+    // setMetaSpriteEntries(prev =>
+    //   prev.map(item => item.id === selectedId ? { ...item, r: (item.r + 1) % 4 } : item)
+    // )
+    setMetaSprites(prev => {
+
+      return prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
+
+        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, r: (entry.r + 1) % 4} : entry);
+
+        return {
+          ...item,
+          entries: updated
+        }
+      })
+    })                          
+
+    
   }
 
   const paletteView = useMemo(
@@ -506,7 +635,7 @@ export default function SNESpriteEditor() {
     console.log('value: ', value)
 
     var color = currentColorValue;
-    if(!color) return;
+    if (!color) return;
 
     const hexColor = `#${(value & 0xf8).toString(16).padStart(2, '0')}${(color.g & 0xf8).toString(16).padStart(2, '0')}${(color.b & 0xf8).toString(16).padStart(2, '0')}`;
     const bgrHexColor = (((color.b & 0xf8) >> 3) << 10) | (((color.g & 0xf8) >> 3) << 5) | ((value & 0xf8) >> 3)
@@ -516,8 +645,8 @@ export default function SNESpriteEditor() {
         pi === currentPalette || currentColor === 0 ?
           palette.map((hex, ci) => (ci === currentColor ? hexColor : hex))
           : palette
-      )) 
-      
+      ))
+
     setBGRPalettes(prev =>
       prev.map((p, pi) =>
         pi === currentPalette || currentColor === 0 ?
@@ -530,25 +659,25 @@ export default function SNESpriteEditor() {
     const value = parseInt(e.target.value);
 
     var color = currentColorValue;
-    if(!color) return;
+    if (!color) return;
 
     const hexColor = `#${(color.r & 0xf8).toString(16).padStart(2, '0')}${(value & 0xf8).toString(16).padStart(2, '0')}${(color.b & 0xf8).toString(16).padStart(2, '0')}`;
-    const bgrHexColor = (((color.b & 0xf8) >> 3) << 10) | (((value & 0xf8) >> 3) << 5) | ((color.r   & 0xf8) >> 3)
+    const bgrHexColor = (((color.b & 0xf8) >> 3) << 10) | (((value & 0xf8) >> 3) << 5) | ((color.r & 0xf8) >> 3)
 
     setPalettes(prev =>
       prev.map((palette, pi) =>
         pi === currentPalette || currentColor === 0 ?
           palette.map((hex, ci) => (ci === currentColor ? hexColor : hex))
           : palette
-      )) 
-      
+      ))
+
     setBGRPalettes(prev =>
       prev.map((p, pi) =>
         pi === currentPalette || currentColor === 0 ?
           p.map((hex, ci) => (ci === currentColor ? bgrHexColor.toString(16).padStart(4, '0') : hex))
           : p
       ));
-      
+
 
 
   })
@@ -557,7 +686,7 @@ export default function SNESpriteEditor() {
     const value = parseInt(e.target.value);
 
     var color = currentColorValue;
-    if(!color) return;
+    if (!color) return;
 
     const hexColor = `#${(color.r & 0xf8).toString(16).padStart(2, '0')}${(color.g & 0xf8).toString(16).padStart(2, '0')}${(value & 0xf8).toString(16).padStart(2, '0')}`;
     const bgrHexColor = (((value & 0xf8) >> 3) << 10) | (((color.g & 0xf8) >> 3) << 5) | ((color.r & 0xf8) >> 3)
@@ -567,8 +696,8 @@ export default function SNESpriteEditor() {
         pi === currentPalette || currentColor === 0 ?
           palette.map((hex, ci) => (ci === currentColor ? hexColor : hex))
           : palette
-      )) 
-      
+      ))
+
     setBGRPalettes(prev =>
       prev.map((p, pi) =>
         pi === currentPalette || currentColor === 0 ?
@@ -587,209 +716,291 @@ export default function SNESpriteEditor() {
           <div className="flex">
             <div className="flex flex-row gap-4">
 
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col gap-1">
 
-                <div>
-                  <h2 className="font-semibold">Meta-sprite</h2>
+                <div className="flex flex-row justify-between items-center">
+                  <span className="text-sm font-bold">Metasprite Editor</span>
+                  {/* <span className="text-xs">Current Metasprite: {currentMetasprite.toString().padStart(2, "0")}</span> */}
+                                        <div className="relative">
+                      <select 
+                        value={currentMetasprite} 
+                        onChange={((e) => setCurrentMetasprite(parseInt(e.target.value)))}
+                        className="w-full select-none bg-white placeholder:text-slate-400 text-slate-700 text-sm border border-slate-200 rounded pl-3 pr-8 py-1 transition duration-300 ease focus:outline-none focus:border-slate-400 hover:border-slate-400 shadow-sm focus:shadow-md appearance-none cursor-pointer">
+                          {metasprites.map((ms, i) => {
+                            return <option key={i} value={i}>{ms.name}</option>
+                          })}
+                        {/* <option value="0">Tilesheet 0</option>
+                        <option value="1">Tilesheet 1</option> */}
+                      </select>           
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.2" stroke="currentColor" className="h-5 w-5 ml-1 absolute top-1.5 right-1.5 text-slate-700">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                      </svg>    
+                    </div>         
+
                 </div>
 
-                <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
-                  <MetaSpriteEditor
-                    entries={metaSpriteEntries}
-                    drawGrid={drawGrid}
-                    palettes={palettes}
-                    tiles={tiles}
-                    highlightSelected={highlightSelected}
-                    selected={selectedEntry}
-                    onClick={({ row, col }) => {
-                      if (selectedTileCell) {
+                <div className="flex flex-col">
+                  <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
+                    <MetaSpriteEditor
+                      entries={currentMetaSpriteEntries}
+                      tilesheets={tilesheets}
+                      drawGrid={drawGrid}
+                      palettes={palettes}
+                      highlightSelected={highlightSelected}
+                      selected={selectedEntry}
+                      onClick={({ row, col }) => {
+                        if (selectedTileCell) {
 
-                        const newEntry: MetaSpriteEntry = {
-                          id: uuid(),
-                          tileSheetIndex: 0,  // for now
-                          tileIndex: currentTile,
-                          paletteIndex: currentPalette, // for now
-                          x: col,
-                          y: row,
-                          h: false,
-                          v: false,
-                          r: 0
+                          const newEntry: MetaSpriteEntry = {
+                            id: uuid(),
+                            tileSheetIndex: currentTilesheet,  // for now
+                            tileIndex: currentTile,
+                            paletteIndex: currentPalette, // for now
+                            x: col,
+                            y: row,
+                            h: false,
+                            v: false,
+                            r: 0
+                          }
+
+                          setMetaSprites(prev => {
+
+                            return prev.map((item, idx) => {
+                              if (idx !== currentMetasprite) return item;
+
+                              return {
+                                ...item,
+                                entries: [...item.entries, newEntry]
+                              }
+                            })
+                          })                          
+
+                          //setMetaSpriteEntries((prev) => [...prev, newEntry])
+                          setSelectedId(newEntry.id);
+
+                          
                         }
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-row gap-10">
+                    <div className="flex flex-col">
+                      <div className="flex mb-2 ml-1">
+                        <div className="flex flex-row gap-4">
+                          <div className="flex flex-row gap-2">
+                            <div className="w-fit h-fit select-none">
+                              <StyledCheckbox checked={highlightSelected} onChange={(e) => { setHighlightSelected(e.target.checked) }} />
+                            </div>
+                            <label>Highlight selected sprite</label>
+                          </div>
+                          <div className="flex flex-row gap-2">
+                            <div className="w-fit h-fit select-none">
+                              <StyledCheckbox checked={drawGrid} onChange={(e) => { setDrawGrid(e.target.checked) }} />
+                            </div>
+                            <label>Draw Grid</label>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex justify-between w-full items-center">
+                        <div className="flex flex-row gap-2 items-center">
 
-                        setMetaSpriteEntries((prev) => [...prev, newEntry])
+                          <StyledButton width={25} onClick={flipHorizontal}>H Flip</StyledButton>
+                          <StyledButton width={25} onClick={flipVertical}>V Flip</StyledButton>
 
-                        setSelectedId(newEntry.id);
-                      }
-                    }}
-                  />
+                          <ChevronButton title="Shift Left" direction="left" onClick={() => shiftMetaSprite(-1, 0)} />
+                          <ChevronButton title="Shift Right" direction="right" onClick={() => shiftMetaSprite(1, 0)} />
+                          <ChevronButton title="Shift Up" direction="up" onClick={() => shiftMetaSprite(0, -1)} />
+                          <ChevronButton title="Shift Down" direction="down" onClick={() => shiftMetaSprite(0, 1)} />
+                          <ChevronButton title="Rotate CCW" direction="rotate-ccw" onClick={() => rotateMetaSpriteCCW()} />
+                          <ChevronButton title="Rotate CW" direction="rotate-cw" onClick={() => rotateMetaSpriteCW()} />
+                        </div>
+                      </div>
+                      <div className="flex flex-col w-130">
+                        <div className="flex flex-row justify-between items-center"><span className="mt-1 text-sm">List of Sprites {currentMetaSpriteEntries.length}</span>
+                          <StyledButton width={35} className="h-5" onClick={deleteAll}>Clear</StyledButton>
+                        </div>
+                        <SingleSelectList
+                          maxHeight={200}
+                          onDrop={(fromIndex, toIndex) => {
+                            setMetaSprites(prev => {
+
+                              return prev.map((item, idx) => {
+                                if (idx !== currentMetasprite) return item;
+
+                                const updated = moveItem(item.entries, fromIndex, toIndex);
+
+                                return {
+                                  ...item,
+                                  entries: updated
+                                }
+                              })
+                            })                          
+
+                            // setMetaSpriteEntries(prev => moveItem(prev, fromIndex, toIndex));
+                          }}
+                          options={options}
+                          value={selectedId}
+                          onDeleteItem={(index) => {
+                            setMetaSprites(prev => {
+
+                              return prev.map((item, idx) => {
+                                if (idx !== currentMetasprite) return item;
+
+                                const updated = item.entries.filter(a => a.id !== index);
+
+                                return {
+                                  ...item,
+                                  entries: updated
+                                }
+                              })
+                            })                          
+
+                          }
+                            //setMetaSpriteEntries(prev => prev.filter(a => a.id !== index))
+                          }
+                          onChange={(id) => {
+                            setSelectedId(id);
+                          }} />
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
+
+                
               </div>
 
               <div className="flex">
-                <div className="flex flex-col">
-                  <div className="flex flex-row justify-between w-full">
-                    <h2 className="font-semibold">Tilesheet</h2>
-                    {selectedTileCell && <span className="text-sm">Selected Tile: {tileIndex(selectedTileCell?.row ?? 0, selectedTileCell?.col ?? 0)}</span>}
+                <div className="flex flex-col gap-1">
+                  <div className="flex flex-row justify-between w-full items-center">
+                    <span className="text-sm font-bold">Tilesheet</span>
+                    <div className="relative">
+                      <select
+                        value={currentTilesheet}
+                        onChange={((e) => setCurrentTilesheet(parseInt(e.target.value)))}
+                        className="w-full select-none bg-white placeholder:text-slate-400 text-slate-700 text-sm border border-slate-200 rounded pl-3 pr-8 py-1 transition duration-300 ease focus:outline-none focus:border-slate-400 hover:border-slate-400 shadow-sm focus:shadow-md appearance-none cursor-pointer">
+                        <option value="0">Tilesheet 0</option>
+                        <option value="1">Tilesheet 1</option>
+                      </select>
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.2" stroke="currentColor" className="h-5 w-5 ml-1 absolute top-1.5 right-1.5 text-slate-700">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                      </svg>
+                    </div>
+
                   </div>
-                  <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
-                    <Tilesheet tiles={tiles} palette={palettes[currentPalette]} selected={selectedTileCell} onSelected={(selected) => {
-                      setSelectedTileCell(selected);
-                      setShowSpriteEditor(true);
-                      setCurrentTile(tileIndex(selected?.row ?? 0, selected?.col ?? 0))
-                    }} />
+                  <div className="flex flex-col">
+                    <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
+                      <Tilesheet tiles={currentTiles} palette={palettes[currentPalette]} selected={selectedTileCell} onSelected={(selected) => {
+                        setSelectedTileCell(selected);
+                        setShowSpriteEditor(true);
+                        setCurrentTile(tileIndex(selected?.row ?? 0, selected?.col ?? 0))
+                      }} />
+                    </div>
+                    <div className="flex justify-end">
+                      {selectedTileCell && <span className="text-xs">Selected Tile: {tileIndex(selectedTileCell?.row ?? 0, selectedTileCell?.col ?? 0)}</span>}
+                    </div>
                   </div>
 
                 </div>
               </div>
-                  <div className="flex flex-col w-full">
-                    
-                    <h2 className="font-semibold">Palette</h2>
-                    <div className="flex flex-col gap-2">
-                      {paletteView}
+              <div className="flex flex-col w-full">
+
+                <h2 className="font-semibold">Palette</h2>
+                <div className="flex flex-col gap-2">
+                  {paletteView}
+                </div>
+
+                <div className="flex flex-row justify-between">
+                  <div className="flex mt-4">
+                    <ColorPicker555 value={palettes[currentPalette][currentColor]}
+                      onColorChange={(nextHex, bgr) => {
+
+                        setBGRPalettes(prev =>
+                          prev.map((p, pi) =>
+                            pi === currentPalette || currentColor === 0 ?
+                              p.map((hex, ci) => (ci === currentColor ? bgr.toString(16).padStart(4, '0') : hex))
+                              : p
+                          ));
+
+                        setPalettes(prev =>
+                          prev.map((palette, pi) =>
+                            pi === currentPalette || currentColor === 0 ?
+                              palette.map((hex, ci) => (ci === currentColor ? nextHex : hex))
+                              : palette
+                          ))
+                      }}
+                    />
+                  </div>
+                  <div className="flex mt-4 flex-row items-center gap-2">
+                    <label>HEX</label>
+                    <input type="text"
+                      placeholder="0000"
+                      value={bgrPalettes[currentPalette][currentColor]}
+                      onChange={handleBGRChange}
+                      className="w-28 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                      title="Enter 4 hex digits (bit15 auto-cleared)" />
+                  </div>
+                </div>
+
+                <div className="flex flex-row mt-1 justify-between">
+
+                  <div className="flex flex-col gap-2 w-20">
+                    <div className="flex flex-row items-center gap-1">
+                      <label>R</label>
+                      <input type="text"
+                        placeholder="000"
+                        value={currentRed?.toString().padStart(3, '0')}
+                        onChange={handleRedChanged}
+                        className="w-14 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                        title="Enter Red Value" />
                     </div>
-
-                    <div className="flex flex-row justify-between">
-                      <div className="flex mt-4">
-                        <ColorPicker555 value={palettes[currentPalette][currentColor]}
-                          onColorChange={(nextHex, bgr) => {
-
-                            setBGRPalettes(prev =>
-                              prev.map((p, pi) =>
-                                pi === currentPalette || currentColor === 0 ?
-                                  p.map((hex, ci) => (ci === currentColor ? bgr.toString(16).padStart(4, '0') : hex))
-                                  : p
-                              ));
-
-                            setPalettes(prev =>
-                              prev.map((palette, pi) =>
-                                pi === currentPalette || currentColor === 0 ?
-                                  palette.map((hex, ci) => (ci === currentColor ? nextHex : hex))
-                                  : palette
-                              ))
-                          }}
-                        />
-                      </div>
-                      <div className="flex mt-4 flex-row items-center gap-2">
-                        <label>HEX</label>
-                        <input type="text"
-                          placeholder="0000"
-                          value={bgrPalettes[currentPalette][currentColor]}
-                          onChange={handleBGRChange}
-                          className="w-28 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
-                          title="Enter 4 hex digits (bit15 auto-cleared)" />
-                      </div>
-                    </div>
-
-                    <div className="flex flex-row mt-1 justify-between">
-
-                      <div className="flex flex-col gap-2 w-20">
-                        <div className="flex flex-row items-center gap-1">
-                          <label>R</label>
-                          <input type="text"
-                            placeholder="000"
-                            value={currentRed?.toString().padStart(3, '0')}
-                            onChange={handleRedChanged}
-                            className="w-14 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
-                            title="Enter Red Value" />
-                        </div>
-                        <div className="flex justify-center">
-                          <input value={currentRed} max={248} onChange={handleRedChanged} type="range" className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
+                    <div className="flex justify-center">
+                      <input value={currentRed} max={248} onChange={handleRedChanged} type="range" className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
                               [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:appearance-none
-                              [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:appearance-none"></input>                
-                        </div>
-                      </div>
+                              [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:appearance-none"></input>
+                    </div>
+                  </div>
 
-                      <div className="flex flex-col gap-2 w-20">
+                  <div className="flex flex-col gap-2 w-20">
 
-                        <div className="flex flex-row items-center gap-1">
-                          <label>G</label>
-                          <input type="text"
-                            placeholder="000"
-                            value={currentGreen?.toString().padStart(3, '0')}
-                            onChange={handleGreenChanged}
-                            className="w-14 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
-                            title="Enter Green Value" />
-                        </div>
-                        <div className="flex justify-center">
-                          <input onChange={handleGreenChanged} max={248} value={currentGreen} type="range" className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
+                    <div className="flex flex-row items-center gap-1">
+                      <label>G</label>
+                      <input type="text"
+                        placeholder="000"
+                        value={currentGreen?.toString().padStart(3, '0')}
+                        onChange={handleGreenChanged}
+                        className="w-14 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                        title="Enter Green Value" />
+                    </div>
+                    <div className="flex justify-center">
+                      <input onChange={handleGreenChanged} max={248} value={currentGreen} type="range" className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
                                   [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:appearance-none
-                                  [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:appearance-none"></input>                
-                        </div>
-                      </div>
+                                  [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:appearance-none"></input>
+                    </div>
+                  </div>
 
-                      <div className="flex flex-col gap-2 w-20">
-                        <div className="flex flex-row items-center gap-1">
-                          <label>B</label>
-                          <input type="text"
-                            placeholder="000"
-                            value={currentBlue?.toString().padStart(3, '0')}
-                            onChange={handleBlueChanged}
-                            className="w-14 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
-                            title="Enter Blue Value" />
-                        </div>
-                        <div className="flex justify-center">
-                          <input value={currentBlue} max={248} onChange={handleBlueChanged} type="range" className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
+                  <div className="flex flex-col gap-2 w-20">
+                    <div className="flex flex-row items-center gap-1">
+                      <label>B</label>
+                      <input type="text"
+                        placeholder="000"
+                        value={currentBlue?.toString().padStart(3, '0')}
+                        onChange={handleBlueChanged}
+                        className="w-14 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                        title="Enter Blue Value" />
+                    </div>
+                    <div className="flex justify-center">
+                      <input value={currentBlue} max={248} onChange={handleBlueChanged} type="range" className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
                                   [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:appearance-none
-                                  [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:appearance-none"></input>                
-                        </div>
-                      </div>
+                                  [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:appearance-none"></input>
                     </div>
-
-                  </div>
-              </div>
-          </div>
-
-          <div className="flex flex-row gap-10">
-            <div className="w-208 flex flex-col">
-              <div className="flex mb-2 ml-1">
-                <div className="flex flex-row gap-4">
-                  <div className="flex flex-row gap-2">
-                    <div className="w-fit h-fit select-none">
-                      <StyledCheckbox checked={highlightSelected} onChange={(e) => { setHighlightSelected(e.target.checked) }} />
-                    </div>
-                    <label>Highlight selected sprite</label>
-                  </div>
-                  <div className="flex flex-row gap-2">
-                    <div className="w-fit h-fit select-none">
-                      <StyledCheckbox checked={drawGrid} onChange={(e) => { setDrawGrid(e.target.checked) }} />
-                    </div>
-                    <label>Draw Grid</label>
                   </div>
                 </div>
-              </div>
-              <div className="flex justify-between w-full items-center">
-                <div className="flex flex-row gap-2 items-center">
 
-                  <StyledButton width={25} onClick={flipHorizontal}>H Flip</StyledButton>
-                  <StyledButton width={25} onClick={flipVertical}>V Flip</StyledButton>
-
-                  <ChevronButton title="Shift Left" direction="left" onClick={() => shiftMetaSprite(-1, 0)} />
-                  <ChevronButton title="Shift Right" direction="right" onClick={() => shiftMetaSprite(1, 0)} />
-                  <ChevronButton title="Shift Up" direction="up" onClick={() => shiftMetaSprite(0, -1)} />
-                  <ChevronButton title="Shift Down" direction="down" onClick={() => shiftMetaSprite(0, 1)} />
-                  <ChevronButton title="Rotate CCW" direction="rotate-ccw" onClick={() => rotateMetaSpriteCCW()} />
-                  <ChevronButton title="Rotate CW" direction="rotate-cw" onClick={() => rotateMetaSpriteCW()} />
-                </div>
-              </div>
-              <div className="flex flex-col w-130">
-                <div className="flex flex-row justify-between items-center"><span className="mt-1 text-sm">List of Sprites {metaSpriteEntries.length}</span>
-                  <StyledButton width={35} className="h-5" onClick={deleteAll}>Clear</StyledButton>                
-                </div>
-                <SingleSelectList
-                  maxHeight={200}
-                  onDrop={(fromIndex, toIndex) => {
-                    setMetaSpriteEntries(prev => moveItem(prev, fromIndex, toIndex));
-                  }}
-                  options={options}
-                  value={selectedId}
-                  onDeleteItem={(index) => setMetaSpriteEntries(prev => prev.filter(a => a.id !== index))}
-                  onChange={(id) => {
-                    setSelectedId(id);
-                  }} />
-                {/* <StyledButton width={35} className="mt-1" onClick={deleteAll}>Clear</StyledButton> */}
               </div>
             </div>
           </div>
+
         </div>
       </div>
 
@@ -802,10 +1013,6 @@ export default function SNESpriteEditor() {
           setShowSpriteEditor(false);
         }}>
         <div className="flex flex-col">
-          {/* <p className="text-xs text-slate-400 w-70">
-          Paint with 16-color palette. Tools: Brush (B), Fill (F), Eyedropper (I), Eraser (E). Undo (Ctrl/Cmd+Z), Redo (Ctrl/Cmd+Y or Shift+Z).
-        </p> */}
-
           <div className="flex flex-row gap-2">
             <div className="select-none w-fit" onMouseUp={stopStroke} onMouseLeave={stopStroke}>
               <div className="inline-grid"
@@ -837,24 +1044,24 @@ export default function SNESpriteEditor() {
           <div className="flex flex-col gap-1 select-none">
             <div>
               <div className="text-xs text-[#222222]">Shift pixels
-                <button title="Shift pixels up" 
-                        className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" 
-                        onClick={() => transformTile((src) => shiftTile(src, 0, -1))}>
+                <button title="Shift pixels up"
+                  className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white"
+                  onClick={() => transformTile((src) => shiftTile(src, 0, -1))}>
                   <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowUp}></FontAwesomeIcon>
                 </button>,
-                <button title="Shift pixels down" 
-                        className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" 
-                        onClick={() => transformTile((src) => shiftTile(src, 0, 1))}>
+                <button title="Shift pixels down"
+                  className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white"
+                  onClick={() => transformTile((src) => shiftTile(src, 0, 1))}>
                   <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowDown}></FontAwesomeIcon>
                 </button>,
-                <button title="Shift pixels left" 
-                        className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" 
-                        onClick={() => transformTile((src) => shiftTile(src, -1, 0))}>
+                <button title="Shift pixels left"
+                  className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white"
+                  onClick={() => transformTile((src) => shiftTile(src, -1, 0))}>
                   <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowLeft}></FontAwesomeIcon>
                 </button>,
-                <button title="Shift pixels right" 
-                        className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" 
-                        onClick={() => transformTile((src) => shiftTile(src, 1, 0))}>
+                <button title="Shift pixels right"
+                  className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white"
+                  onClick={() => transformTile((src) => shiftTile(src, 1, 0))}>
                   <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowRight}></FontAwesomeIcon>
                 </button>
               </div>
