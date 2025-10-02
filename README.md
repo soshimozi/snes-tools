@@ -43,6 +43,60 @@ Built in **TypeScript + React (with TailwindCSS)**, inspired by classic NES tool
 - Keyboard shortcuts for fast editing (planned).
 
 ---
+## 🛠️ Build & Run
+
+### Prerequisites
+- **Node.js 20+** (LTS)
+- Package manager: **pnpm** (recommended), or yarn / npm
+- Git
+
+### 1. Clone & Install
+```bash
+git clone https://github.com/soshimozi/snes-tools
+cd snes-tools
+cp .env.example .env.local   # if applicable
+pnpm install                 # or: npm install / yarn install
+
+---
+
+## ⚡ Quick Start with Podman
+If you just want to run the editor in a container:
+
+```bash
+git clone https://github.com/soshimozi/snes-tools
+cd snes-tools
+podman build -t nes-chr-editor:latest .
+podman run --rm -p 3000:3000 --name nes-chr-editor nes-chr-editor:latest
+
+---
+
+## 🚀 Deployment
+
+### Option A: Vercel (recommended for Next.js with SSR/APIs)
+1. Push your repo to GitHub/GitLab/Bitbucket.
+2. Go to **vercel.com → New Project → Import** your repo.
+3. Framework preset: **Next.js** (auto-detected).
+4. Set any required env vars under **Settings → Environment Variables**.
+5. Deploy.
+
+> Vercel automatically handles build (`next build`) and runs the production server.
+> If you use Edge/APIs/SSR, this is the simplest option.
+
+---
+
+### Option B: Netlify (Static Export)
+Use this if your app can be **fully static** (no SSR/API routes).
+
+1. In `next.config.(js|ts)`:
+   ```ts
+   /** @type {import('next').NextConfig} */
+   const nextConfig = {
+     output: 'export',
+     images: { unoptimized: true }
+   };
+   export default nextConfig;
+
+---
 
 ## ⚡ Roadmap
 - Add undo/redo stack (per tile + per meta sprite).
