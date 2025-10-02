@@ -17,6 +17,9 @@ import ColorPicker555 from "./colorPicker555";
 import StyledButton from "./styledButton";
 import SytledCheckbox from "./styledCheckbox";
 import StyledCheckbox from "./styledCheckbox";
+import { LeftDrawer } from "./leftDrawer";
+import { menuTree, type MenuNode } from "./menu";
+import { DrawerMenu } from "./drawerMenu";
 
 // Types
 // export type Palette = string[]; // 16 hex colors: "#RRGGBB"
@@ -153,6 +156,9 @@ export default function SNESpriteEditor() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawGrid, setDrawGrid] = useState(true);
+
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const [palettes, setPalettes] = useState<Palette[]>(() => [
     Palettes.getPalette(0),
@@ -475,10 +481,6 @@ export default function SNESpriteEditor() {
   const flipHorizontal = () => {
     if (!selectedId) return;
 
-    // need to do this with collection
-    // setMetaSpriteEntries(prev =>
-    //   prev.map(item => item.id === selectedId ? { ...item, h: !item.h } : item))
-
     setMetaSprites(prev => {
 
       return prev.map((item, idx) => {
@@ -497,10 +499,6 @@ export default function SNESpriteEditor() {
 
   const flipVertical = () => {
     if (!selectedId) return;
-
-    // // need to do this with collection
-    // setMetaSpriteEntries(prev =>
-    //   prev.map(item => item.id === selectedId ? { ...item, v: !item.v } : item))
 
     setMetaSprites(prev => {
 
@@ -522,12 +520,6 @@ export default function SNESpriteEditor() {
   const rotateMetaSpriteCCW = () => {
     if (!selectedId) return;
 
-
-    // need to do this with collection
-    // setMetaSpriteEntries(prev =>
-    //   prev.map(item => item.id === selectedId ? { ...item, r: (item.r - 1) % 4 } : item)
-    // )
-
     setMetaSprites(prev => {
 
       return prev.map((item, idx) => {
@@ -548,11 +540,6 @@ export default function SNESpriteEditor() {
   const rotateMetaSpriteCW = () => {
     if (!selectedId) return;
 
-
-    // need to do this with collection
-    // setMetaSpriteEntries(prev =>
-    //   prev.map(item => item.id === selectedId ? { ...item, r: (item.r + 1) % 4 } : item)
-    // )
     setMetaSprites(prev => {
 
       return prev.map((item, idx) => {
@@ -677,9 +664,6 @@ export default function SNESpriteEditor() {
           p.map((hex, ci) => (ci === currentColor ? bgrHexColor.toString(16).padStart(4, '0') : hex))
           : p
       ));
-
-
-
   })
 
   const handleBlueChanged = ((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -706,31 +690,298 @@ export default function SNESpriteEditor() {
       ));
   })
 
+  const createMetaspriteEntry = useCallback((col: number, row: number) => {
+    const newEntry: MetaSpriteEntry = {
+      id: uuid(),
+      tileSheetIndex: currentTilesheet,  // for now
+      tileIndex: currentTile,
+      paletteIndex: currentPalette, // for now
+      x: col,
+      y: row,
+      h: false,
+      v: false,
+      r: 0
+    }
+
+    return newEntry;
+
+  }, [currentTile, currentPalette, currentTilesheet]);
+
+  const updateMetasprite = ({row, col} : {row: number, col: number}) => {
+    if(!selectedTileCell) return;
+
+    const newEntry =  createMetaspriteEntry(col, row);
+    setMetaSprites(prev => {
+
+      return prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
+
+        return {
+          ...item,
+          entries: [...item.entries, newEntry]
+        }
+      })
+    })                          
+
+    setSelectedId(newEntry.id);
+
+  }
+
+const onPick = useCallback((node: MenuNode) => {
+    // route or command
+    switch (node.id) {
+      case "sprite":       
+        if(selectedTileCell) setShowSpriteEditor(true); 
+        break;
+
+      case "tiles":      
+        console.log("tiles"); 
+        break;
+      case "palette":    
+        console.log("palette"); 
+        break;
+      case "settings":   
+        console.log("settings"); 
+        break;
+      case "meta-export": 
+        /* open export modal */ 
+        break;
+      // ...etc
+    }
+    setDrawerOpen(false); // close on selection (overlay mode)
+  }, [selectedTileCell]);  
+
   return (
 
     <Fragment>
-      <div className="min-h-screen p-6">
-        <div className="mx-auto max-w-6xl">
-          <h1 className="text-2xl font-bold mb-2">SNES Sprite Editor (4bpp, 8×8 tiles)</h1>
+      <div className="min-h-screen">
+      {/* Header / AppBar */}
+      <header className="sticky top-0 z-30 border-b border-slate-200">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <StyledButton
+            className="cursor-pointer"
+            width={24}
+            onClick={() => setDrawerOpen(true)}
+          >
+            {/* Simple hamburger icon */}
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75">
+              <path strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </StyledButton>
 
-          <div className="flex">
-            <div className="flex flex-row gap-4">
+          <h1 className="text-2xl font-bold">SNES Sprite Editor (4bpp, 8×8 tiles)</h1>
+        </div>
+      </header>
 
+      {/* Drawer (overlay on mobile, persistent on lg) */}
+      <LeftDrawer
+        open={drawerOpen}
+        
+        onClose={() => setDrawerOpen(false)}
+        widthClass="w-64"
+        persistentLg={false}
+        ariaLabel="SNES tools navigation"
+      >
+        {/* Close button only visible on mobile/tablet */}
+        <div className="lg:hidden flex justify-end p-2 border-b border-slate-200">
+          <button
+            onClick={() => setDrawerOpen(false)}
+            className="inline-flex items-center justify-center h-8 w-8 rounded-md"
+            aria-label="Close navigation"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6l-12 12" />
+            </svg>
+          </button>
+        </div>
+        <DrawerMenu tree={menuTree} onPick={onPick} accordion />        
+        {/* <nav className="h-full flex flex-col bg-black">
+          <div className="px-4 py-3 border-b"><h2 className="text-base font-semibold">SNES Tools</h2></div>
+          <ul className="p-2 space-y-1 text-sm">
+            <li><button className="w-full text-left px-3 py-2 rounded cursor-pointer" onClick={() => { setDrawerOpen(false); setShowSpriteEditor(true);}}>Tile Editor</button></li>
+            <li><button className="w-full text-left px-3 py-2 rounded cursor-pointer" onClick={() => setDrawerOpen(false)}>Tilesheets</button></li>
+            <li><button className="w-full text-left px-3 py-2 rounded cursor-pointer" onClick={() => setDrawerOpen(false)} >Palette</button></li>
+            <li className="pt-2 border-t mt-2">
+              <button className="w-full text-left px-3 py-2 rounded cursor-pointer" onClick={() => setDrawerOpen(false)} >Settings</button>
+            </li>
+          </ul>
+          <div className="mt-auto p-3 border-t text-xs text-slate-500">v0.1 • 4bpp • 8×8</div>
+        </nav> */}
+      </LeftDrawer>
+
+      {/* Main content area.
+          On lg+, add left padding to make room for the persistent drawer. */}
+      <main className="mt-2">
+        <div className="mx-auto w-full">
+          <div className="flex flex-row gap-10 justify-center">
+
+            <div className="flex flex-col gap-1">
+
+              <div className="flex flex-row justify-between items-center">
+                <span className="text-sm font-bold">Metasprite Editor</span>
+                {/* <span className="text-xs">Current Metasprite: {currentMetasprite.toString().padStart(2, "0")}</span> */}
+                                      <div className="relative">
+                    <select 
+                      value={currentMetasprite} 
+                      onChange={((e) => setCurrentMetasprite(parseInt(e.target.value)))}
+                      className="w-full select-none bg-white placeholder:text-slate-400 text-slate-700 text-sm border border-slate-200 rounded pl-3 pr-8 py-1 transition duration-300 ease focus:outline-none focus:border-slate-400 hover:border-slate-400 shadow-sm focus:shadow-md appearance-none cursor-pointer">
+                        {metasprites.map((ms, i) => {
+                          return <option key={i} value={i}>{ms.name}</option>
+                        })}
+                    </select>           
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.2" stroke="currentColor" className="h-5 w-5 ml-1 absolute top-1.5 right-1.5 text-slate-700">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                    </svg>    
+                  </div>         
+
+              </div>
+
+              <div className="flex flex-col">
+                <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
+                  <MetaSpriteEditor
+                    entries={currentMetaSpriteEntries}
+                    tilesheets={tilesheets}
+                    drawGrid={drawGrid}
+                    palettes={palettes}
+                    highlightSelected={highlightSelected}
+                    selected={selectedEntry}
+                    onClick={updateMetasprite}
+                  />
+                </div>
+                <div className="flex flex-row gap-10">
+                  <div className="flex flex-col">
+                    <div className="flex mb-2 ml-1">
+                      <div className="flex flex-row gap-4">
+                        <div className="flex flex-row gap-2">
+                          <div className="w-fit h-fit select-none">
+                            <StyledCheckbox checked={highlightSelected} onChange={(e) => { setHighlightSelected(e.target.checked) }} />
+                          </div>
+                          <label>Highlight selected sprite</label>
+                        </div>
+                        <div className="flex flex-row gap-2">
+                          <div className="w-fit h-fit select-none">
+                            <StyledCheckbox checked={drawGrid} onChange={(e) => { setDrawGrid(e.target.checked) }} />
+                          </div>
+                          <label>Draw Grid</label>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex justify-between w-full items-center">
+                      <div className="flex flex-row gap-2 items-center">
+
+                        <StyledButton width={25} onClick={flipHorizontal}>H Flip</StyledButton>
+                        <StyledButton width={25} onClick={flipVertical}>V Flip</StyledButton>
+
+                        <ChevronButton title="Shift Left" direction="left" onClick={() => shiftMetaSprite(-1, 0)} />
+                        <ChevronButton title="Shift Right" direction="right" onClick={() => shiftMetaSprite(1, 0)} />
+                        <ChevronButton title="Shift Up" direction="up" onClick={() => shiftMetaSprite(0, -1)} />
+                        <ChevronButton title="Shift Down" direction="down" onClick={() => shiftMetaSprite(0, 1)} />
+                        <ChevronButton title="Rotate CCW" direction="rotate-ccw" onClick={() => rotateMetaSpriteCCW()} />
+                        <ChevronButton title="Rotate CW" direction="rotate-cw" onClick={() => rotateMetaSpriteCW()} />
+                      </div>
+                    </div>
+                    <div className="flex flex-col w-130">
+                      <div className="flex flex-row justify-between items-center"><span className="mt-1 text-sm">List of Sprites {currentMetaSpriteEntries.length}</span>
+                        <StyledButton width={35} className="h-5" onClick={deleteAll}>Clear</StyledButton>
+                      </div>
+                      <SingleSelectList
+                        maxHeight={200}
+                        onDrop={(fromIndex, toIndex) => {
+                          setMetaSprites(prev => {
+
+                            return prev.map((item, idx) => {
+                              if (idx !== currentMetasprite) return item;
+
+                              const updated = moveItem(item.entries, fromIndex, toIndex);
+
+                              return {
+                                ...item,
+                                entries: updated
+                              }
+                            })
+                          })                          
+
+                          // setMetaSpriteEntries(prev => moveItem(prev, fromIndex, toIndex));
+                        }}
+                        options={options}
+                        value={selectedId}
+                        onDeleteItem={(index) => {
+                          setMetaSprites(prev => {
+
+                            return prev.map((item, idx) => {
+                              if (idx !== currentMetasprite) return item;
+
+                              const updated = item.entries.filter(a => a.id !== index);
+
+                              return {
+                                ...item,
+                                entries: updated
+                              }
+                            })
+                          })                          
+
+                        }
+                          //setMetaSpriteEntries(prev => prev.filter(a => a.id !== index))
+                        }
+                        onChange={(id) => {
+                          setSelectedId(id);
+                        }} />
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              
+            </div>
+
+            <div className="flex">
+              <div className="flex flex-col gap-1">
+                <div className="flex flex-row justify-between w-full items-center">
+                  <span className="text-sm font-bold">Tilesheet</span>
+                  <div className="relative">
+                    <select
+                      value={currentTilesheet}
+                      onChange={((e) => setCurrentTilesheet(parseInt(e.target.value)))}
+                      className="w-full select-none bg-white placeholder:text-slate-400 text-slate-700 text-sm border border-slate-200 rounded pl-3 pr-8 py-1 transition duration-300 ease focus:outline-none focus:border-slate-400 hover:border-slate-400 shadow-sm focus:shadow-md appearance-none cursor-pointer">
+                      <option value="0">Tilesheet 0</option>
+                      <option value="1">Tilesheet 1</option>
+                    </select>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.2" stroke="currentColor" className="h-5 w-5 ml-1 absolute top-1.5 right-1.5 text-slate-700">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                    </svg>
+                  </div>
+
+                </div>
+                <div className="flex flex-col">
+                  <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
+                    <Tilesheet tiles={currentTiles} palette={palettes[currentPalette]} selected={selectedTileCell} onSelected={(selected) => {
+                      setSelectedTileCell(selected);
+                      setShowSpriteEditor(true);
+                      setCurrentTile(tileIndex(selected?.row ?? 0, selected?.col ?? 0))
+                    }} />
+                  </div>
+                  <div className="flex justify-end">
+                    {selectedTileCell && <span className="text-xs">Selected Tile: {tileIndex(selectedTileCell?.row ?? 0, selectedTileCell?.col ?? 0)}</span>}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+            
+            <div className="flex flex-col w-fit">
               <div className="flex flex-col gap-1">
 
                 <div className="flex flex-row justify-between items-center">
-                  <span className="text-sm font-bold">Metasprite Editor</span>
-                  {/* <span className="text-xs">Current Metasprite: {currentMetasprite.toString().padStart(2, "0")}</span> */}
-                                        <div className="relative">
+                  <span className="text-sm font-bold">Palette Editor</span>
+                    <div className="relative">
                       <select 
-                        value={currentMetasprite} 
-                        onChange={((e) => setCurrentMetasprite(parseInt(e.target.value)))}
+                        value={currentPalette} 
+                        onChange={((e) => setCurrentPalette(parseInt(e.target.value)))}
                         className="w-full select-none bg-white placeholder:text-slate-400 text-slate-700 text-sm border border-slate-200 rounded pl-3 pr-8 py-1 transition duration-300 ease focus:outline-none focus:border-slate-400 hover:border-slate-400 shadow-sm focus:shadow-md appearance-none cursor-pointer">
-                          {metasprites.map((ms, i) => {
-                            return <option key={i} value={i}>{ms.name}</option>
+                          {palettes.map((ms, i) => {
+                            return <option key={i} value={i}>{`Palette ${i.toString().padStart(2, '0')}`}</option>
                           })}
-                        {/* <option value="0">Tilesheet 0</option>
-                        <option value="1">Tilesheet 1</option> */}
                       </select>           
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.2" stroke="currentColor" className="h-5 w-5 ml-1 absolute top-1.5 right-1.5 text-slate-700">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
@@ -739,173 +990,6 @@ export default function SNESpriteEditor() {
 
                 </div>
 
-                <div className="flex flex-col">
-                  <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
-                    <MetaSpriteEditor
-                      entries={currentMetaSpriteEntries}
-                      tilesheets={tilesheets}
-                      drawGrid={drawGrid}
-                      palettes={palettes}
-                      highlightSelected={highlightSelected}
-                      selected={selectedEntry}
-                      onClick={({ row, col }) => {
-                        if (selectedTileCell) {
-
-                          const newEntry: MetaSpriteEntry = {
-                            id: uuid(),
-                            tileSheetIndex: currentTilesheet,  // for now
-                            tileIndex: currentTile,
-                            paletteIndex: currentPalette, // for now
-                            x: col,
-                            y: row,
-                            h: false,
-                            v: false,
-                            r: 0
-                          }
-
-                          setMetaSprites(prev => {
-
-                            return prev.map((item, idx) => {
-                              if (idx !== currentMetasprite) return item;
-
-                              return {
-                                ...item,
-                                entries: [...item.entries, newEntry]
-                              }
-                            })
-                          })                          
-
-                          //setMetaSpriteEntries((prev) => [...prev, newEntry])
-                          setSelectedId(newEntry.id);
-
-                          
-                        }
-                      }}
-                    />
-                  </div>
-                  <div className="flex flex-row gap-10">
-                    <div className="flex flex-col">
-                      <div className="flex mb-2 ml-1">
-                        <div className="flex flex-row gap-4">
-                          <div className="flex flex-row gap-2">
-                            <div className="w-fit h-fit select-none">
-                              <StyledCheckbox checked={highlightSelected} onChange={(e) => { setHighlightSelected(e.target.checked) }} />
-                            </div>
-                            <label>Highlight selected sprite</label>
-                          </div>
-                          <div className="flex flex-row gap-2">
-                            <div className="w-fit h-fit select-none">
-                              <StyledCheckbox checked={drawGrid} onChange={(e) => { setDrawGrid(e.target.checked) }} />
-                            </div>
-                            <label>Draw Grid</label>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex justify-between w-full items-center">
-                        <div className="flex flex-row gap-2 items-center">
-
-                          <StyledButton width={25} onClick={flipHorizontal}>H Flip</StyledButton>
-                          <StyledButton width={25} onClick={flipVertical}>V Flip</StyledButton>
-
-                          <ChevronButton title="Shift Left" direction="left" onClick={() => shiftMetaSprite(-1, 0)} />
-                          <ChevronButton title="Shift Right" direction="right" onClick={() => shiftMetaSprite(1, 0)} />
-                          <ChevronButton title="Shift Up" direction="up" onClick={() => shiftMetaSprite(0, -1)} />
-                          <ChevronButton title="Shift Down" direction="down" onClick={() => shiftMetaSprite(0, 1)} />
-                          <ChevronButton title="Rotate CCW" direction="rotate-ccw" onClick={() => rotateMetaSpriteCCW()} />
-                          <ChevronButton title="Rotate CW" direction="rotate-cw" onClick={() => rotateMetaSpriteCW()} />
-                        </div>
-                      </div>
-                      <div className="flex flex-col w-130">
-                        <div className="flex flex-row justify-between items-center"><span className="mt-1 text-sm">List of Sprites {currentMetaSpriteEntries.length}</span>
-                          <StyledButton width={35} className="h-5" onClick={deleteAll}>Clear</StyledButton>
-                        </div>
-                        <SingleSelectList
-                          maxHeight={200}
-                          onDrop={(fromIndex, toIndex) => {
-                            setMetaSprites(prev => {
-
-                              return prev.map((item, idx) => {
-                                if (idx !== currentMetasprite) return item;
-
-                                const updated = moveItem(item.entries, fromIndex, toIndex);
-
-                                return {
-                                  ...item,
-                                  entries: updated
-                                }
-                              })
-                            })                          
-
-                            // setMetaSpriteEntries(prev => moveItem(prev, fromIndex, toIndex));
-                          }}
-                          options={options}
-                          value={selectedId}
-                          onDeleteItem={(index) => {
-                            setMetaSprites(prev => {
-
-                              return prev.map((item, idx) => {
-                                if (idx !== currentMetasprite) return item;
-
-                                const updated = item.entries.filter(a => a.id !== index);
-
-                                return {
-                                  ...item,
-                                  entries: updated
-                                }
-                              })
-                            })                          
-
-                          }
-                            //setMetaSpriteEntries(prev => prev.filter(a => a.id !== index))
-                          }
-                          onChange={(id) => {
-                            setSelectedId(id);
-                          }} />
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-
-                
-              </div>
-
-              <div className="flex">
-                <div className="flex flex-col gap-1">
-                  <div className="flex flex-row justify-between w-full items-center">
-                    <span className="text-sm font-bold">Tilesheet</span>
-                    <div className="relative">
-                      <select
-                        value={currentTilesheet}
-                        onChange={((e) => setCurrentTilesheet(parseInt(e.target.value)))}
-                        className="w-full select-none bg-white placeholder:text-slate-400 text-slate-700 text-sm border border-slate-200 rounded pl-3 pr-8 py-1 transition duration-300 ease focus:outline-none focus:border-slate-400 hover:border-slate-400 shadow-sm focus:shadow-md appearance-none cursor-pointer">
-                        <option value="0">Tilesheet 0</option>
-                        <option value="1">Tilesheet 1</option>
-                      </select>
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.2" stroke="currentColor" className="h-5 w-5 ml-1 absolute top-1.5 right-1.5 text-slate-700">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
-                      </svg>
-                    </div>
-
-                  </div>
-                  <div className="flex flex-col">
-                    <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
-                      <Tilesheet tiles={currentTiles} palette={palettes[currentPalette]} selected={selectedTileCell} onSelected={(selected) => {
-                        setSelectedTileCell(selected);
-                        setShowSpriteEditor(true);
-                        setCurrentTile(tileIndex(selected?.row ?? 0, selected?.col ?? 0))
-                      }} />
-                    </div>
-                    <div className="flex justify-end">
-                      {selectedTileCell && <span className="text-xs">Selected Tile: {tileIndex(selectedTileCell?.row ?? 0, selectedTileCell?.col ?? 0)}</span>}
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-              <div className="flex flex-col w-full">
-
-                <h2 className="font-semibold">Palette</h2>
                 <div className="flex flex-col gap-2">
                   {paletteView}
                 </div>
@@ -942,9 +1026,9 @@ export default function SNESpriteEditor() {
                   </div>
                 </div>
 
-                <div className="flex flex-row mt-1 justify-between">
+                <div className="flex flex-row mt-1 justify-between w-full">
 
-                  <div className="flex flex-col gap-2 w-20">
+                  <div className="flex flex-col gap-2 w-20 items-center">
                     <div className="flex flex-row items-center gap-1">
                       <label>R</label>
                       <input type="text"
@@ -961,7 +1045,7 @@ export default function SNESpriteEditor() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 w-20">
+                  <div className="flex flex-col gap-2 w-20 items-center">
 
                     <div className="flex flex-row items-center gap-1">
                       <label>G</label>
@@ -979,7 +1063,7 @@ export default function SNESpriteEditor() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 w-20">
+                  <div className="flex flex-col gap-2 w-20 items-center">
                     <div className="flex flex-row items-center gap-1">
                       <label>B</label>
                       <input type="text"
@@ -1000,8 +1084,9 @@ export default function SNESpriteEditor() {
               </div>
             </div>
           </div>
-
         </div>
+      </main>
+
       </div>
 
 
