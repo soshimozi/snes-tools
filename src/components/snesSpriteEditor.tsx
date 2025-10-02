@@ -812,8 +812,8 @@ const onPick = useCallback((node: MenuNode) => {
       {/* Main content area.
           On lg+, add left padding to make room for the persistent drawer. */}
       <main className="mt-2">
-        <div className="mx-auto max-w-7xl">
-          <div className="flex flex-row gap-4">
+        <div className="mx-auto w-full">
+          <div className="flex flex-row gap-10 justify-center">
 
             <div className="flex flex-col gap-1">
 
@@ -969,7 +969,7 @@ const onPick = useCallback((node: MenuNode) => {
               </div>
             </div>
             
-            <div className="flex flex-col w-full">
+            <div className="flex flex-col w-fit">
               <div className="flex flex-col gap-1">
 
                 <div className="flex flex-row justify-between items-center">
