@@ -70,7 +70,7 @@ export function LeftDrawer({
           persistentLg ? "lg:translate-x-0 lg:static lg:inset-auto lg:z-auto" : ""
         ].join(" ")}
       >
-        <div className="h-full bg-white border-r border-slate-200 shadow-lg lg:shadow-none">
+        <div className="h-full border-r border-slate-200 shadow-lg lg:shadow-none">
           {children}
         </div>
       </aside>
