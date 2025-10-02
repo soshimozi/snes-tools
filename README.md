@@ -56,6 +56,7 @@ git clone https://github.com/soshimozi/snes-tools
 cd snes-tools
 cp .env.example .env.local   # if applicable
 pnpm install                 # or: npm install / yarn install
+```
 
 ---
 
@@ -67,6 +68,7 @@ git clone https://github.com/soshimozi/snes-tools
 cd snes-tools
 podman build -t nes-chr-editor:latest .
 podman run --rm -p 3000:3000 --name nes-chr-editor nes-chr-editor:latest
+```
 
 ---
 
@@ -94,8 +96,8 @@ Use this if your app can be **fully static** (no SSR/API routes).
      output: 'export',
      images: { unoptimized: true }
    };
-   export default nextConfig;
-
+   export default nextConfig;```
+  
 ---
 
 ## ⚡ Roadmap
