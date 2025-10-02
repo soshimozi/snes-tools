@@ -96,7 +96,7 @@ Use this if your app can be **fully static** (no SSR/API routes).
      output: 'export',
      images: { unoptimized: true }
    };
-   export default nextConfig;```
+   export default nextConfig;
   
 ---
 
