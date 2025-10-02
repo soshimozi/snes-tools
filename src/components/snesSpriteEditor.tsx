@@ -10,10 +10,13 @@ import { MultiSelect } from "./MultiSelect";
 import { SingleSelectList } from "./singleSelectList";
 import { MetaSpriteEditor } from "./metaSpriteEditor";
 import { Tilesheet } from "./tilesheet";
-import { decodeSNES4bppTile, download, encodeSNES4bppTile, exportCGRAMBGR15, makeBlankTile, makeTiles, moveItem, renderTilesheetToCanvas, renderTileToCanvas, tileIndex } from "@/helpers";
-import { TILE_H, TILE_W } from "@/app/constants";
+import { decodeSNES4bppTile, download, encodeSNES4bppTile, exportCGRAMBGR15, makeBlankTile, makeTiles, moveItem, parseHexColor, renderTilesheetToCanvas, renderTileToCanvas, tileIndex } from "@/helpers";
+import { SCALE, TILE_H, TILE_W } from "@/app/constants";
 import { ChevronButton } from "./chevronButton";
 import ColorPicker555 from "./colorPicker555";
+import StyledButton from "./styledButton";
+import SytledCheckbox from "./styledCheckbox";
+import StyledCheckbox from "./styledCheckbox";
 
 // Types
 // export type Palette = string[]; // 16 hex colors: "#RRGGBB"
@@ -62,83 +65,71 @@ export class Palettes {
     ];
   }
 
+  static getBGR(index: number): [number, number, number] {
+    return [
+      Palettes.pal_b[index],
+      Palettes.pal_g[index],
+      Palettes.pal_r[index],
+    ]
+  }
+
   /** Get RGB as hex string like "#ffeeff" */
   static getRGBString(paletteIndex: number, colorIndex: number): string {
     const [r, g, b] = Palettes.getRGB(paletteIndex * 16 + colorIndex);
     const toHex = (n: number) => n.toString(16).padStart(2, "0");
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }  
+  }
 
-  static getPalette(paletteIndex: number) : string[] {
+  static getPalette(paletteIndex: number): string[] {
     let rgb = [];
 
-    for(let i = 0; i < 16; i++) {
+    for (let i = 0; i < 16; i++) {
       rgb.push(Palettes.getRGBString(paletteIndex, i))
     }
 
-    return rgb;    
+    return rgb;
+  }
+
+
+  static getBGRPalette(paletteIndex: number): string[] {
+
+    let bgr = [];
+
+    const pal = Palettes.getPalette(0);
+
+    for (let i = 0; i < 16; i++) {
+      const color = Palettes.getBGR(paletteIndex * 16 + i)
+
+      const bgrHexColor = (((color[0] & 0xf8) >> 3) << 10) | (((color[1] & 0xf8) >> 3) << 5) | (((color[2] & 0xf8) >> 3) & 0x1f);
+      bgr.push(bgrHexColor.toString(16).padStart(4, '0'))
     }
+
+    return bgr;
+
+  }
 }
 
 
-function defaultPalette(): Palette {
-  return Palettes.getPalette(0);
-  // return [
-  //   "#000000", // 0
-  //   "#404040", // 1
-  //   "#808080", // 2
-  //   "#C0C0C0", // 3
-  //   "#FF0000", // 4
-  //   "#FFA500", // 5
-  //   "#FFFF00", // 6
-  //   "#00FF00", // 7
-  //   "#00FFFF", // 8
-  //   "#0000FF", // 9
-  //   "#7A00FF", // 10
-  //   "#FF00FF", // 11
-  //   "#964B00", // 12
-  //   "#FFFFFF", // 13
-  //   "#1E90FF", // 14
-  //   "#FF69B4", // 15
-  // ];
-}
+type Metasprite = {
+  name: string;
+  entries: MetaSpriteEntry[]
+};
 
-function greenPalette(): Palette {
-  return Palettes.getPalette(3);
+type Tilesheet = {
+  tiles: number[][][]
 }
 
 
-
-// ------------------ Encoding / Decoding ------------------
-
-
-
-
-
-
-
-
-
-
-
-
-function keyOf(e: MetaSpriteEntry) {
-  // If you *don't* have e.id, use a composite:
-  // return `${e.tileIndex}|${e.paletteIndex}|${e.x}|${e.y}`;
+function keyOfMetaSpriteEntry(e: MetaSpriteEntry) {
   return e.id;
 }
 
 export default function SNESpriteEditor() {
-  // Core state
-  //const [palette, setPalette] = useState<Palette>(() => defaultPalette());
   const [tiles, setTiles] = useState<number[][][]>(makeTiles());
   const [currentTile, setCurrentTile] = useState(0);
   const [currentColor, setCurrentColor] = useState(1);
-  const [zoom, setZoom] = useState(32); // pixel size in px
-  const [tool, setTool] = useState<Tool>({type: "brush", icon: faFillDrip});
+  const [tool, setTool] = useState<Tool>({ type: "brush", icon: faFillDrip });
   const [isMouseDown, setIsMouseDown] = useState(false);
-  const [tilesPerRow, setTilesPerRow] = useState(8);
-  const [showPaletteWindow, setShowPaletteWindow] = useState(false);
   const [selectedTileCell, setSelectedTileCell] = useState<Cell | null>(null);
   const [showSpriteEditor, setShowSpriteEditor] = useState(false);
   const [highlightSelected, setHighlightSelected] = useState(true);
@@ -146,8 +137,6 @@ export default function SNESpriteEditor() {
   const [metaSpriteEntries, setMetaSpriteEntries] = useState<MetaSpriteEntry[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  const [selectedMetaSprite, setSelectedMetaSprite] = useState<{row: number, col: number} | undefined>();
   const [drawGrid, setDrawGrid] = useState(true);
 
   const [palettes, setPalettes] = useState<Palette[]>(() => [
@@ -160,13 +149,25 @@ export default function SNESpriteEditor() {
     Palettes.getPalette(6),
     Palettes.getPalette(7),
   ]);
+
+  const [bgrPalettes, setBGRPalettes] = useState<Palette[]>(() => [
+    Palettes.getBGRPalette(0),
+    Palettes.getBGRPalette(1),
+    Palettes.getBGRPalette(2),
+    Palettes.getBGRPalette(3),
+    Palettes.getBGRPalette(4),
+    Palettes.getBGRPalette(5),
+    Palettes.getBGRPalette(6),
+    Palettes.getBGRPalette(7),
+  ]);
+
   const [currentPalette, setCurrentPalette] = useState(0);
 
   // Build multi-line options for the list (memoized).
   const options = useMemo(
     () =>
       metaSpriteEntries.map((entry) => ({
-        value: keyOf(entry),
+        value: keyOfMetaSpriteEntry(entry),
         lines: [
           `Tile: ${entry.tileIndex}, Sheet: ${entry.tileSheetIndex}, Palette: ${entry.paletteIndex}, x: ${entry.x}, y: ${entry.y}, h: ${entry.h ? 1 : 0}, v: ${entry.v ? 1 : 0}, r: ${entry.r}`,
         ],
@@ -184,72 +185,52 @@ export default function SNESpriteEditor() {
   // (Optional) get the selected entry
   const selectedEntry = useMemo(() => {
     const id = selectedId;
-    return id ? metaSpriteEntries.find((e) => keyOf(e) === id) ?? undefined : undefined;
+    return id ? metaSpriteEntries.find((e) => keyOfMetaSpriteEntry(e) === id) ?? undefined : undefined;
   }, [selectedId, metaSpriteEntries]);
-  
-  // Undo/Redo
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [future, setFuture] = useState<HistoryEntry[]>([]);
 
-  const pushHistory = useCallback((snapshot?: Tile[]) => {
-    const tilesSnap = snapshot ?? tiles.map(t => t.map(row => row.slice()));
-    setHistory(h => [...h, { tiles: tilesSnap }]);
-    setFuture([]);
-  }, [tiles]);
+  const currentRed = useMemo(() => {
+    const colorHex = palettes[currentPalette][currentColor];
 
-  const undo = () => {
-    setHistory(h => {
-      if (h.length === 0) return h;
-      const prev = h[h.length - 1];
-      setFuture(f => [{ tiles: tiles.map(t => t.map(r => r.slice())) }, ...f]);
-      setTiles(prev.tiles.map(t => t.map(r => r.slice())));
-      return h.slice(0, -1);
-    });
-  };
+    const color = parseHexColor(colorHex);
+    return color?.r
+  }, [palettes, currentPalette, currentColor]);
 
-  const redo = () => {
-    setFuture(f => {
-      if (f.length === 0) return f;
-      const next = f[0];
-      setHistory(h => [...h, { tiles: tiles.map(t => t.map(r => r.slice())) }]);
-      setTiles(next.tiles.map(t => t.map(r => r.slice())));
-      return f.slice(1);
-    });
-  };
+  const currentBlue = useMemo(() => {
+    const colorHex = palettes[currentPalette][currentColor];
+
+    const color = parseHexColor(colorHex);
+    return color?.b
+  }, [palettes, currentPalette, currentColor]);
+
+  const currentGreen = useMemo(() => {
+    const colorHex = palettes[currentPalette][currentColor];
+
+    const color = parseHexColor(colorHex);
+    return color?.g
+  }, [palettes, currentPalette, currentColor]);
+
+  const currentColorValue = useMemo(() => {
+
+    const colorHex = palettes[currentPalette][currentColor];
+    const color = parseHexColor(colorHex);
+    return color;
+
+  }, [palettes, currentPalette, currentColor])
 
   const getToolByName = (name: "brush" | "fill" | "picker" | "eraser"): Tool => {
-    switch(name) {
+    switch (name) {
       case "brush":
-        return { type: "brush", icon: faPaintBrush};
+        return { type: "brush", icon: faPaintBrush };
       case "fill":
-        return { type: "fill", icon: faFillDrip};
+        return { type: "fill", icon: faFillDrip };
       case "picker":
-        return { type: "picker", icon: faEyeDropper};
+        return { type: "picker", icon: faEyeDropper };
       case "eraser":
-        return { type: "eraser", icon: faEraser};
+        return { type: "eraser", icon: faEraser };
     }
   }
 
   // Keyboard shortcuts
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo(); else undo();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        redo();
-      }
-      if (e.key === "b") setTool(getToolByName("brush"));
-      if (e.key === "f") setTool(getToolByName("fill"));
-      if (e.key === "i") setTool(getToolByName("picker"));
-      if (e.key === "e") setTool(getToolByName("eraser"));
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [redo, undo]);
-
   const tile = tiles[currentTile];
 
   // Painting ops
@@ -261,86 +242,55 @@ export default function SNESpriteEditor() {
     });
   }, [currentTile]);
 
-const floodFill = useCallback((x: number, y: number, _target: number | undefined, replacementRaw: number) => {
-  const tileIndex = currentTile;                 // snapshot to avoid stale closure
-  const replacement = replacementRaw & 0xF;
+  const floodFill = useCallback((x: number, y: number, _target: number | undefined, replacementRaw: number) => {
+    const tileIndex = currentTile;                 // snapshot to avoid stale closure
+    const replacement = replacementRaw & 0xF;
 
-  setTiles(prev => {
-    const width = TILE_W, height = TILE_H;
+    setTiles(prev => {
+      const width = TILE_W, height = TILE_H;
 
-    // Defensive bounds check on the seed pixel
-    if (x < 0 || y < 0 || x >= width || y >= height) return prev;
+      // Defensive bounds check on the seed pixel
+      if (x < 0 || y < 0 || x >= width || y >= height) return prev;
 
-    // Read the true target from state (ignore the passed-in if any)
-    const startTarget = prev[tileIndex][y][x] & 0xF;
+      // Read the true target from state (ignore the passed-in if any)
+      const startTarget = prev[tileIndex][y][x] & 0xF;
 
-    // Nothing to do if already that color
-    if (startTarget === replacement) return prev;
+      // Nothing to do if already that color
+      if (startTarget === replacement) return prev;
 
-    // Clone (tile -> rows -> cells)
-    const next = prev.map(t => t.map(r => r.slice()));
+      // Clone (tile -> rows -> cells)
+      const next = prev.map(t => t.map(r => r.slice()));
 
-    const visited = new Set<string>();
-    const stack: [number, number][] = [[x, y]];
+      const visited = new Set<string>();
+      const stack: [number, number][] = [[x, y]];
 
-    while (stack.length) {
-      const [cx, cy] = stack.pop()!;
-      if (cx < 0 || cy < 0 || cx >= width || cy >= height) continue;
+      while (stack.length) {
+        const [cx, cy] = stack.pop()!;
+        if (cx < 0 || cy < 0 || cx >= width || cy >= height) continue;
 
-      const key = `${cx},${cy}`;
-      if (visited.has(key)) continue;
+        const key = `${cx},${cy}`;
+        if (visited.has(key)) continue;
 
-      // Only fill matching target pixels
-      if ((next[tileIndex][cy][cx] & 0xF) !== startTarget) continue;
+        // Only fill matching target pixels
+        if ((next[tileIndex][cy][cx] & 0xF) !== startTarget) continue;
 
-      visited.add(key);
-      next[tileIndex][cy][cx] = replacement;
+        visited.add(key);
+        next[tileIndex][cy][cx] = replacement;
 
-      // 4-way neighbors
-      stack.push([cx + 1, cy]);
-      stack.push([cx - 1, cy]);
-      stack.push([cx, cy + 1]);
-      stack.push([cx, cy - 1]);
-    }
+        // 4-way neighbors
+        stack.push([cx + 1, cy]);
+        stack.push([cx - 1, cy]);
+        stack.push([cx, cy + 1]);
+        stack.push([cx, cy - 1]);
+      }
 
-    return next;
-  });
-}, [currentTile]);
-  
-  // const floodFill = useCallback((x: number, y: number, target: number, replacement: number) => {
-    
-  //   console.log("Flood fill => target: ", target, " replacement: ", replacement);
-  //   if (target === replacement) return;
-  //   const visited = new Set<string>();
-  //   const q: [number, number][] = [[x, y]];
-  //   setTiles(prev => {
-  //     const next = prev.map(t => t.map(r => r.slice()));
-  //     while (q.length) {
-  //       const [cx, cy] = q.shift()!;
-  //       const key = `${cx},${cy}`;
-
-  //       console.log('key: ', key);
-
-  //       if (visited.has(key)) continue;
-
-  //       console.log('adding to visited: ', key);
-
-  //       visited.add(key);
-  //       if (cx < 0 || cy < 0 || cx >= TILE_W || cy >= TILE_H) continue;
-  //       if (next[currentTile][cy][cx] !== target) continue;
-
-  //       console.log('setting color: ', replacement);
-  //       next[currentTile][cy][cx] = replacement & 0xF;
-  //       q.push([cx+1, cy]); q.push([cx-1, cy]); q.push([cx, cy+1]); q.push([cx, cy-1]);
-  //     }
-  //     return next;
-  //   });
-  // }, [currentTile]);
+      return next;
+    });
+  }, [currentTile]);
 
   // Mouse interactions
   const onCellDown = (x: number, y: number) => (e: React.MouseEvent) => {
     e.preventDefault();
-    pushHistory();
     setIsMouseDown(true);
 
     if (e.button === 2 || e.buttons === 2) {
@@ -370,70 +320,22 @@ const floodFill = useCallback((x: number, y: number, _target: number | undefined
 
   // Tile ops
   const addTile = () => {
-    pushHistory();
     setTiles(t => [...t, makeBlankTile()]);
     setCurrentTile(i => i + 1);
   };
+
   const duplicateTile = () => {
-    pushHistory();
     setTiles(t => [...t, t[currentTile].map(row => row.slice())]);
     setCurrentTile(tiles.length);
   };
+
   const clearTile = () => {
-    pushHistory();
     setTiles(prev => {
       const next = prev.map(t => t.map(row => row.slice()));
       next[currentTile] = makeBlankTile();
       return next;
     });
   };
-
-  // Import/Export
-  const exportBIN = () => {
-    const chunks = tiles.map(encodeSNES4bppTile);
-    const total = new Uint8Array(32 * tiles.length);
-    chunks.forEach((c, i) => total.set(c, i * 32));
-    download(`snes_tiles_${tiles.length}x.bin`, total);
-  };
-
-  // const exportJSON = () => {
-  //   const meta = { format: "snes-4bpp", tileSize: { w: TILE_W, h: TILE_H }, tiles, palette };
-  //   const text = JSON.stringify(meta, null, 2);
-  //   download("snes_tiles.json", new Blob([text], { type: "application/json" }));
-  // };
-
-  const importBIN: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const buf = new Uint8Array(await f.arrayBuffer());
-    if (buf.length % 32 !== 0) {
-      alert("File size must be a multiple of 32 bytes (each tile is 32 bytes)");
-      return;
-    }
-    const count = buf.length / 32;
-    const newTiles: Tile[] = [];
-    for (let i = 0; i < count; i++) newTiles.push(decodeSNES4bppTile(buf.subarray(i * 32, i * 32 + 32)));
-    pushHistory(tiles.map(t => t.map(r => r.slice())));
-    setTiles(newTiles);
-    setCurrentTile(0);
-    e.currentTarget.value = "";
-  };
-
-  // PNG export
-  // const exportTilePNG = () => {
-  //   const c = renderTileToCanvas(tile, palette, 16);
-  //   c.toBlob(b => b && download(`tile_${currentTile}.png`, b!));
-  // };
-  // const exportTilesheetPNG = () => {
-  //   const c = renderTilesheetToCanvas(tiles, palette, tilesPerRow, 8);
-  //   c.toBlob(b => b && download(`tilesheet_${tiles.length}x.png`, b!));
-  // };
-
-  // // CGRAM export
-  // const exportCGRAM = () => {
-  //   const cgram = exportCGRAMBGR15(palette);
-  //   download("palette_cgram_bgr15.bin", cgram);
-  // };
 
   // Context menu disable for right-click erase
   useEffect(() => {
@@ -444,13 +346,12 @@ const floodFill = useCallback((x: number, y: number, _target: number | undefined
 
 
   const transformTile = useCallback((fn: (src: Tile) => Tile) => {
-    pushHistory();
     setTiles(prev => {
       const next = prev.map(t => t.map(r => r.slice()));
       next[currentTile] = fn(next[currentTile]);
       return next;
     });
-  }, [currentTile, pushHistory]);
+  }, [currentTile]);
 
   const flipTileH = () => transformTile((src) => {
     const out = makeBlankTile();
@@ -466,21 +367,18 @@ const floodFill = useCallback((x: number, y: number, _target: number | undefined
 
   const rotateTileCW = () => transformTile((src) => {
     const out = makeBlankTile();
-    // out[y][x] = src[7 - x][y]
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[y][x] = src[7 - x][y];
     return out;
   });
 
   const rotateTileCCW = () => transformTile((src) => {
     const out = makeBlankTile();
-    // out[y][x] = src[x][7 - y]
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[y][x] = src[x][7 - y];
     return out;
   });
 
-  const shiftTile = (dx: number, dy: number) => {
+  const shiftTile = (src: Tile, dx: number, dy: number) => {
     const wrap8 = (n: number) => (((n % 8) + 8) % 8);
-    transformTile((src) => {
       const out = makeBlankTile();
       for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
@@ -490,16 +388,13 @@ const floodFill = useCallback((x: number, y: number, _target: number | undefined
         }
       }
       return out;
-    });
   };
-
 
   const shiftMetaSprite = (dx: number, dy: number) => {
 
-    const scale = 3 * 8 * 16;
+    const scale = SCALE * 8 * 16;
     const wrap = (n: number) => (((n % scale) + scale) % scale);
 
-    
     setMetaSpriteEntries(prev =>
       prev.map(item =>
         item.id === selectedId ? { ...item, x: wrap(item.x + dx), y: wrap(item.y + dy) } : item
@@ -513,126 +408,224 @@ const floodFill = useCallback((x: number, y: number, _target: number | undefined
   }
 
   const flipHorizontal = () => {
-    if(!selectedId) return;
+    if (!selectedId) return;
 
-    setMetaSpriteEntries(prev => 
+    setMetaSpriteEntries(prev =>
       prev.map(item => item.id === selectedId ? { ...item, h: !item.h } : item))
   }
 
   const flipVertical = () => {
-    if(!selectedId) return;
+    if (!selectedId) return;
 
-    setMetaSpriteEntries(prev => 
+    setMetaSpriteEntries(prev =>
       prev.map(item => item.id === selectedId ? { ...item, v: !item.v } : item))
 
   }
 
   const rotateMetaSpriteCCW = () => {
-    if(!selectedId) return;
+    if (!selectedId) return;
 
 
     setMetaSpriteEntries(prev =>
-      prev.map(item => item.id === selectedId ? { ...item, r: (item.r - 1) % 4} : item)
+      prev.map(item => item.id === selectedId ? { ...item, r: (item.r - 1) % 4 } : item)
     )
   }
 
 
   const rotateMetaSpriteCW = () => {
-    if(!selectedId) return;
+    if (!selectedId) return;
 
 
     setMetaSpriteEntries(prev =>
-      prev.map(item => item.id === selectedId ? { ...item, r: (item.r + 1) % 4} : item)
+      prev.map(item => item.id === selectedId ? { ...item, r: (item.r + 1) % 4 } : item)
     )
   }
-
-  
-  // const paletteSwatches = useMemo(
-  //   () => palette.map((hex, i) => (
-  //     <button
-  //       key={i}
-  //       onClick={() => setCurrentColor(i)}
-  //       className={`select-none h-8 w-8 rounded-md border border-white-900 ${currentColor === i ? "ring-2 ring-offset-1 ring-yellow-500" : ""}`}
-  //       style={{ background: hex }}
-  //       title={`Index ${i}`}
-  //     />
-  //   )),
-  //   [palette, currentColor]
-  // );
 
   const paletteView = useMemo(
     () => palettes.map((pal, palIndex) => (
 
       <div key={palIndex} className="flex flex-row">
         {pal.map((hex, i) => (
-        <button
-          key={i}
-          onClick={() => { setCurrentColor(i); setCurrentPalette(palIndex); }}
-          className={`select-none h-6 w-6 rounded-sm border border-white-900 ${currentPalette === palIndex && currentColor === i ? "ring-1 ring-offset-1 ring-yellow-500" : ""}`}
-          style={{ background: hex }}
-          title={`Index ${i}`}
-        />
+          <button
+            key={i}
+            onClick={() => { setCurrentColor(i); setCurrentPalette(palIndex); }}
+            className={`select-none h-6 w-6 rounded-sm border border-white-900 ${currentPalette === palIndex && currentColor === i ? "ring-1 ring-offset-1 ring-yellow-500" : ""}`}
+            style={{ background: hex }}
+            title={`Index ${i}`}
+          />
         ))}
       </div>
     )),
     [palettes, currentPalette, currentColor]
   );
 
-  const getHexFromColorString = (hexString: string): string  => { 
-    return hexString;
+
+  function bgr555ToRgb(bgr555: number): { r: number; g: number; b: number } {
+    // Extract the 5-bit color components using bitwise shifts and masks.
+    const b5 = (bgr555 >> 10) & 0b11111;
+    const g5 = (bgr555 >> 5) & 0b11111;
+    const r5 = bgr555 & 0b11111;
+
+    // Scale the 5-bit values (0-31) to 8-bit values (0-255).
+    // This is done by shifting left by 3 and adding the higher bits.
+    // The formula `(value << 3) | (value >> 2)` provides a more accurate
+    // mapping than just `value << 3`.
+    const r = (r5 << 3) | (r5 >> 2);
+    const g = (g5 << 3) | (g5 >> 2);
+    const b = (b5 << 3) | (b5 >> 2);
+
+    return { r, g, b };
   }
 
+  const handleBGRChange = ((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    const num = parseInt(value, 16);
 
+    const color = bgr555ToRgb(num);
+
+    setBGRPalettes(prev =>
+      prev.map((p, pi) =>
+        pi === currentPalette || currentColor === 0 ?
+          p.map((hex, ci) => (ci === currentColor ? num.toString(16).padStart(4, '0') : hex))
+          : p
+      ));
+
+    const hexColor = `#${(color?.r & 0xf8).toString(16).padStart(2, '0')}${(color?.g & 0xf8).toString(16).padStart(2, '0')}${(color?.b & 0xf8).toString(16).padStart(2, '0')}`;
+
+    setPalettes(prev =>
+      prev.map((palette, pi) =>
+        pi === currentPalette || currentColor === 0 ?
+          palette.map((hex, ci) => (ci === currentColor ? hexColor : hex))
+          : palette
+      ))
+  })
+
+  const handleRedChanged = ((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value);
+
+    console.log('value: ', value)
+
+    var color = currentColorValue;
+    if(!color) return;
+
+    const hexColor = `#${(value & 0xf8).toString(16).padStart(2, '0')}${(color.g & 0xf8).toString(16).padStart(2, '0')}${(color.b & 0xf8).toString(16).padStart(2, '0')}`;
+    const bgrHexColor = (((color.b & 0xf8) >> 3) << 10) | (((color.g & 0xf8) >> 3) << 5) | ((value & 0xf8) >> 3)
+
+    setPalettes(prev =>
+      prev.map((palette, pi) =>
+        pi === currentPalette || currentColor === 0 ?
+          palette.map((hex, ci) => (ci === currentColor ? hexColor : hex))
+          : palette
+      )) 
+      
+    setBGRPalettes(prev =>
+      prev.map((p, pi) =>
+        pi === currentPalette || currentColor === 0 ?
+          p.map((hex, ci) => (ci === currentColor ? bgrHexColor.toString(16).padStart(4, '0') : hex))
+          : p
+      ));
+  });
+
+  const handleGreenChanged = ((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value);
+
+    var color = currentColorValue;
+    if(!color) return;
+
+    const hexColor = `#${(color.r & 0xf8).toString(16).padStart(2, '0')}${(value & 0xf8).toString(16).padStart(2, '0')}${(color.b & 0xf8).toString(16).padStart(2, '0')}`;
+    const bgrHexColor = (((color.b & 0xf8) >> 3) << 10) | (((value & 0xf8) >> 3) << 5) | ((color.r   & 0xf8) >> 3)
+
+    setPalettes(prev =>
+      prev.map((palette, pi) =>
+        pi === currentPalette || currentColor === 0 ?
+          palette.map((hex, ci) => (ci === currentColor ? hexColor : hex))
+          : palette
+      )) 
+      
+    setBGRPalettes(prev =>
+      prev.map((p, pi) =>
+        pi === currentPalette || currentColor === 0 ?
+          p.map((hex, ci) => (ci === currentColor ? bgrHexColor.toString(16).padStart(4, '0') : hex))
+          : p
+      ));
+      
+
+
+  })
+
+  const handleBlueChanged = ((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value);
+
+    var color = currentColorValue;
+    if(!color) return;
+
+    const hexColor = `#${(color.r & 0xf8).toString(16).padStart(2, '0')}${(color.g & 0xf8).toString(16).padStart(2, '0')}${(value & 0xf8).toString(16).padStart(2, '0')}`;
+    const bgrHexColor = (((value & 0xf8) >> 3) << 10) | (((color.g & 0xf8) >> 3) << 5) | ((color.r & 0xf8) >> 3)
+
+    setPalettes(prev =>
+      prev.map((palette, pi) =>
+        pi === currentPalette || currentColor === 0 ?
+          palette.map((hex, ci) => (ci === currentColor ? hexColor : hex))
+          : palette
+      )) 
+      
+    setBGRPalettes(prev =>
+      prev.map((p, pi) =>
+        pi === currentPalette || currentColor === 0 ?
+          p.map((hex, ci) => (ci === currentColor ? bgrHexColor.toString(16).padStart(4, '0') : hex))
+          : p
+      ));
+  })
 
   return (
 
     <Fragment>
-    <div className="min-h-screen p-6">
-      <div className="mx-auto max-w-6xl">
-        <h1 className="text-2xl font-bold mb-2">SNES Sprite Editor (4bpp, 8×8 tiles)</h1>
+      <div className="min-h-screen p-6">
+        <div className="mx-auto max-w-6xl">
+          <h1 className="text-2xl font-bold mb-2">SNES Sprite Editor (4bpp, 8×8 tiles)</h1>
 
-        <div className="flex flex-row gap-10">
-          <div className="flex flex-row gap-10">
+          <div className="flex">
+            <div className="flex flex-row gap-4">
 
-            <div className="flex flex-col items-center">
-              
-              <div>
-                <h2 className="font-semibold">Meta-sprite</h2>
-              </div>
+              <div className="flex flex-col items-center">
 
-              <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
-                <MetaSpriteEditor 
-                      entries={metaSpriteEntries} 
-                      drawGrid={drawGrid}
-                      palettes={palettes} 
-                      tiles={tiles}
-                      highlightSelected={highlightSelected}
-                      selected={selectedEntry}
-                      onClick={({row, col}) => {
-                        if(selectedTileCell) {
+                <div>
+                  <h2 className="font-semibold">Meta-sprite</h2>
+                </div>
 
-                          const newEntry: MetaSpriteEntry = {
-                            id: uuid(),
-                            tileSheetIndex: 0,  // for now
-                            tileIndex: currentTile,
-                            paletteIndex: currentPalette, // for now
-                            x: col,
-                            y: row,
-                            h: false,
-                            v: false,
-                            r: 0
-                          }
+                <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
+                  <MetaSpriteEditor
+                    entries={metaSpriteEntries}
+                    drawGrid={drawGrid}
+                    palettes={palettes}
+                    tiles={tiles}
+                    highlightSelected={highlightSelected}
+                    selected={selectedEntry}
+                    onClick={({ row, col }) => {
+                      if (selectedTileCell) {
 
-                          setMetaSpriteEntries((prev) => [...prev, newEntry])
-
-                          setSelectedId(newEntry.id);
+                        const newEntry: MetaSpriteEntry = {
+                          id: uuid(),
+                          tileSheetIndex: 0,  // for now
+                          tileIndex: currentTile,
+                          paletteIndex: currentPalette, // for now
+                          x: col,
+                          y: row,
+                          h: false,
+                          v: false,
+                          r: 0
                         }
-                      }} 
-                        />
-              </div>
-            </div>
 
-            <div className="flex">
+                        setMetaSpriteEntries((prev) => [...prev, newEntry])
+
+                        setSelectedId(newEntry.id);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex">
                 <div className="flex flex-col">
                   <div className="flex flex-row justify-between w-full">
                     <h2 className="font-semibold">Tilesheet</h2>
@@ -643,79 +636,132 @@ const floodFill = useCallback((x: number, y: number, _target: number | undefined
                       setSelectedTileCell(selected);
                       setShowSpriteEditor(true);
                       setCurrentTile(tileIndex(selected?.row ?? 0, selected?.col ?? 0))
-                    }}  />
+                    }} />
                   </div>
 
                 </div>
-            </div>
-            <div className="flex">
-                <div className="flex flex-col">
+              </div>
                   <div className="flex flex-col w-full">
+                    
                     <h2 className="font-semibold">Palette</h2>
                     <div className="flex flex-col gap-2">
                       {paletteView}
                     </div>
-                    <div className="flex flex-row gap-4">
-                      <ColorPicker555 value={palettes[currentPalette][currentColor]} 
-                        onColorChange={(nextHex) => {
-                          setPalettes(prev =>
-                            prev.map((palette, pi) => 
-                            pi === currentPalette || currentColor === 0 ? 
-                              palette.map((hex, ci) => (ci === currentColor ? nextHex : hex))
-                              : palette
-                            ))
-                        }}
-                      />
-                    </div>                    
-                  </div>
-                </div>
-            </div>
 
+                    <div className="flex flex-row justify-between">
+                      <div className="flex mt-4">
+                        <ColorPicker555 value={palettes[currentPalette][currentColor]}
+                          onColorChange={(nextHex, bgr) => {
+
+                            setBGRPalettes(prev =>
+                              prev.map((p, pi) =>
+                                pi === currentPalette || currentColor === 0 ?
+                                  p.map((hex, ci) => (ci === currentColor ? bgr.toString(16).padStart(4, '0') : hex))
+                                  : p
+                              ));
+
+                            setPalettes(prev =>
+                              prev.map((palette, pi) =>
+                                pi === currentPalette || currentColor === 0 ?
+                                  palette.map((hex, ci) => (ci === currentColor ? nextHex : hex))
+                                  : palette
+                              ))
+                          }}
+                        />
+                      </div>
+                      <div className="flex mt-4 flex-row items-center gap-2">
+                        <label>HEX</label>
+                        <input type="text"
+                          placeholder="0000"
+                          value={bgrPalettes[currentPalette][currentColor]}
+                          onChange={handleBGRChange}
+                          className="w-28 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                          title="Enter 4 hex digits (bit15 auto-cleared)" />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-row mt-1 justify-between">
+
+                      <div className="flex flex-col gap-2 w-20">
+                        <div className="flex flex-row items-center gap-1">
+                          <label>R</label>
+                          <input type="text"
+                            placeholder="000"
+                            value={currentRed?.toString().padStart(3, '0')}
+                            onChange={handleRedChanged}
+                            className="w-14 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                            title="Enter Red Value" />
+                        </div>
+                        <div className="flex justify-center">
+                          <input value={currentRed} max={248} onChange={handleRedChanged} type="range" className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
+                              [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:appearance-none
+                              [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:appearance-none"></input>                
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 w-20">
+
+                        <div className="flex flex-row items-center gap-1">
+                          <label>G</label>
+                          <input type="text"
+                            placeholder="000"
+                            value={currentGreen?.toString().padStart(3, '0')}
+                            onChange={handleGreenChanged}
+                            className="w-14 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                            title="Enter Green Value" />
+                        </div>
+                        <div className="flex justify-center">
+                          <input onChange={handleGreenChanged} max={248} value={currentGreen} type="range" className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
+                                  [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:appearance-none
+                                  [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:appearance-none"></input>                
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 w-20">
+                        <div className="flex flex-row items-center gap-1">
+                          <label>B</label>
+                          <input type="text"
+                            placeholder="000"
+                            value={currentBlue?.toString().padStart(3, '0')}
+                            onChange={handleBlueChanged}
+                            className="w-14 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                            title="Enter Blue Value" />
+                        </div>
+                        <div className="flex justify-center">
+                          <input value={currentBlue} max={248} onChange={handleBlueChanged} type="range" className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
+                                  [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:appearance-none
+                                  [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:appearance-none"></input>                
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+              </div>
           </div>
-        </div>
-        
-        <div className="flex flex-row gap-10">
-          <div className="w-208 flex flex-col">
-                <div className="flex mb-2 ml-1">
-                  <div className="flex flex-row gap-4">
-                    <div className="flex flex-row gap-2">
-                      <div className="w-fit h-fit select-none">
-                        <input 
-                            checked={highlightSelected} 
-                            onChange={(e) => { setHighlightSelected(e.target.checked) }}  
-                            type="checkbox" 
-                            className="accent-blue-500 scale-150 focus:ring-2 focus:ring-blue-400" />
+
+          <div className="flex flex-row gap-10">
+            <div className="w-208 flex flex-col">
+              <div className="flex mb-2 ml-1">
+                <div className="flex flex-row gap-4">
+                  <div className="flex flex-row gap-2">
+                    <div className="w-fit h-fit select-none">
+                      <StyledCheckbox checked={highlightSelected} onChange={(e) => { setHighlightSelected(e.target.checked) }} />
                     </div>
                     <label>Highlight selected sprite</label>
-                    </div>
-                    <div className="flex flex-row gap-2">
-                      <div className="w-fit h-fit select-none">
-                        <input 
-                            checked={drawGrid} 
-                            onChange={(e) => { setDrawGrid(e.target.checked) }}  
-                            type="checkbox" 
-                            className="accent-blue-500 scale-150 focus:ring-2 focus:ring-blue-400" />
-                      </div>
-                      <label>Draw Grid</label>
-                    </div>
                   </div>
-                </div>            
-            <div className="flex flex-row gap-2 items-center">
+                  <div className="flex flex-row gap-2">
+                    <div className="w-fit h-fit select-none">
+                      <StyledCheckbox checked={drawGrid} onChange={(e) => { setDrawGrid(e.target.checked) }} />
+                    </div>
+                    <label>Draw Grid</label>
+                  </div>
+                </div>
+              </div>
               <div className="flex justify-between w-full items-center">
                 <div className="flex flex-row gap-2 items-center">
-                  <button onClick={flipHorizontal} className={[
-                    "w-25 h-fit p-2 inline-flex items-center justify-center rounded-md",
-                    "bg-slate-900 border border-white text-white",
-                    "transition-colors hover:bg-slate-800 active:bg-slate-700",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
-                    ].join(" ")} title="Flip Horizontal">H Flip</button>
-                  <button onClick={flipVertical} className={[
-                    "w-25 h-fit p-2 inline-flex items-center justify-center rounded-md",
-                    "bg-slate-900 border border-white text-white",
-                    "transition-colors hover:bg-slate-800 active:bg-slate-700",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
-                    ].join(" ")} title="Flip Vertical">V Flip
-                  </button>
+
+                  <StyledButton width={25} onClick={flipHorizontal}>H Flip</StyledButton>
+                  <StyledButton width={25} onClick={flipVertical}>V Flip</StyledButton>
 
                   <ChevronButton title="Shift Left" direction="left" onClick={() => shiftMetaSprite(-1, 0)} />
                   <ChevronButton title="Shift Right" direction="right" onClick={() => shiftMetaSprite(1, 0)} />
@@ -724,120 +770,124 @@ const floodFill = useCallback((x: number, y: number, _target: number | undefined
                   <ChevronButton title="Rotate CCW" direction="rotate-ccw" onClick={() => rotateMetaSpriteCCW()} />
                   <ChevronButton title="Rotate CW" direction="rotate-cw" onClick={() => rotateMetaSpriteCW()} />
                 </div>
-
+              </div>
+              <div className="flex flex-col w-130">
+                <div className="flex flex-row justify-between items-center"><span className="mt-1 text-sm">List of Sprites {metaSpriteEntries.length}</span>
+                  <StyledButton width={35} className="h-5" onClick={deleteAll}>Clear</StyledButton>                
+                </div>
+                <SingleSelectList
+                  maxHeight={200}
+                  onDrop={(fromIndex, toIndex) => {
+                    setMetaSpriteEntries(prev => moveItem(prev, fromIndex, toIndex));
+                  }}
+                  options={options}
+                  value={selectedId}
+                  onDeleteItem={(index) => setMetaSpriteEntries(prev => prev.filter(a => a.id !== index))}
+                  onChange={(id) => {
+                    setSelectedId(id);
+                  }} />
+                {/* <StyledButton width={35} className="mt-1" onClick={deleteAll}>Clear</StyledButton> */}
               </div>
             </div>
-            <span className="mt-1">List of Sprites {metaSpriteEntries.length}</span>
-            <SingleSelectList 
-              maxHeight={200} 
-              onDrop={(fromIndex, toIndex) => {
-                  setMetaSpriteEntries(prev => moveItem(prev, fromIndex, toIndex));
-              }}
-              options={options} 
-              value={selectedId} 
-              onDeleteItem={(index) => setMetaSpriteEntries(prev => prev.filter(a => a.id !== index))}
-              onChange={(id) => {
-                setSelectedId(id);
-              }} />
-              <button className={[
-                "mt-1",
-                "w-35 h-fit p-2 inline-flex items-center justify-center rounded-md",
-                "bg-slate-900 border border-white text-white",
-                "transition-colors hover:bg-slate-800 active:bg-slate-700",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
-            ].join(" ")} onClick={deleteAll}>Clear</button>
           </div>
         </div>
       </div>
-    </div>
 
 
-    <DraggableWindow 
-      className="text-slate-700" 
-      title="Tile Editor" 
-      open={showSpriteEditor} 
-      onClose={function (): void {
-        setShowSpriteEditor(false);
-      }}>
-      <div className="flex flex-col">
-        {/* <p className="text-xs text-slate-400 w-70">
+      <DraggableWindow
+        className="text-slate-700"
+        title="Tile Editor"
+        open={showSpriteEditor}
+        onClose={function (): void {
+          setShowSpriteEditor(false);
+        }}>
+        <div className="flex flex-col">
+          {/* <p className="text-xs text-slate-400 w-70">
           Paint with 16-color palette. Tools: Brush (B), Fill (F), Eyedropper (I), Eraser (E). Undo (Ctrl/Cmd+Z), Redo (Ctrl/Cmd+Y or Shift+Z).
         </p> */}
 
-        <div className="flex flex-row gap-2">
-          <div className="select-none w-fit" onMouseUp={stopStroke} onMouseLeave={stopStroke}>
-            <div className="inline-grid"
-              style={{ gridTemplateColumns: `repeat(${TILE_W}, ${zoom}px)`, gridTemplateRows: `repeat(${TILE_H}, ${zoom}px)` }}>
-              {tile.map((row, y) =>
-                row.map((pix, x) => (
-                  <div
-                    key={`${x}-${y}`}
-                    onMouseDown={onCellDown(x, y)}
-                    onMouseMove={onCellMove(x, y)}
-                    className="border border-slate-300 hover:brightness-95"
-                    style={{ background: palettes[currentPalette][pix] ?? "#000" }}
-                    title={`(${x},${y}) → ${pix}`}
-                  />
-                ))
-              )}
+          <div className="flex flex-row gap-2">
+            <div className="select-none w-fit" onMouseUp={stopStroke} onMouseLeave={stopStroke}>
+              <div className="inline-grid"
+                style={{ gridTemplateColumns: `repeat(${TILE_W}, 32px)`, gridTemplateRows: `repeat(${TILE_H}, 32px)` }}>
+                {tile.map((row, y) =>
+                  row.map((pix, x) => (
+                    <div
+                      key={`${x}-${y}`}
+                      onMouseDown={onCellDown(x, y)}
+                      onMouseMove={onCellMove(x, y)}
+                      className="border border-slate-300 hover:brightness-95"
+                      style={{ background: palettes[currentPalette][pix] ?? "#000" }}
+                      title={`(${x},${y}) → ${pix}`}
+                    />
+                  ))
+                )}
+              </div>
             </div>
-          </div>
 
-          <div className="flex flex-col justify-between h-[180px]">
-          {([getToolByName("brush"), getToolByName("fill"), getToolByName("picker"), getToolByName("eraser")] as Tool[]).map((t, i) => (
-            <button key={i} onClick={() => setTool(t)} className={`p-1 rounded-md text-sm ${tool.type===t.type?"bg-blue-600 text-white":"bg-transparent hover:bg-slate-100"}`}>
-              <FontAwesomeIcon icon={t.icon} />
-            </button>
-          ))}
-          </div>
-        </div>
-        <div className="flex w-70 flex-col mt-1 text-xs text-slate-500">Left-click to paint. Right-click to erase. Hold and drag to draw. Fill tool replaces contiguous region.</div>
-        <div className="flex flex-col gap-1 select-none">
-          <div>
-            <div className="text-xs text-[#222222]">Shift pixels 
-              <button title="Shift pixels up" className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" onClick={() => shiftTile(0, -1)}>
-                <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowUp}></FontAwesomeIcon>
-              </button>, 
-              <button title="Shift pixels down" className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" onClick={() => shiftTile(0, 1)}>
-                <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowDown}></FontAwesomeIcon>
-              </button>,
-              <button title="Shift pixels left" className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" onClick={() => shiftTile(-1, 0)}>
-                <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowLeft}></FontAwesomeIcon>
-              </button>, 
-              <button title="Shift pixels right" className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" onClick={() => shiftTile(1, 0)}>
-                <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowRight}></FontAwesomeIcon>
-              </button>
+            <div className="flex flex-col justify-between h-[180px]">
+              {([getToolByName("brush"), getToolByName("fill"), getToolByName("picker"), getToolByName("eraser")] as Tool[]).map((t, i) => (
+                <button key={i} onClick={() => setTool(t)} className={`p-1 rounded-md text-sm ${tool.type === t.type ? "bg-blue-600 text-white" : "bg-transparent hover:bg-slate-100"}`}>
+                  <FontAwesomeIcon icon={t.icon} />
+                </button>
+              ))}
             </div>
           </div>
-        </div>
-        <div className="flex flex-col gap-1 select-none">
-          <div>
-            <div className="text-xs text-[#222222]">Rotate&nbsp; 
-              <button onClick={rotateTileCCW} className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" title="Rotate Left (90° CCW)">
+          <div className="flex w-70 flex-col mt-1 text-xs text-slate-500">Left-click to paint. Right-click to erase. Hold and drag to draw. Fill tool replaces contiguous region.</div>
+          <div className="flex flex-col gap-1 select-none">
+            <div>
+              <div className="text-xs text-[#222222]">Shift pixels
+                <button title="Shift pixels up" 
+                        className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" 
+                        onClick={() => transformTile((src) => shiftTile(src, 0, -1))}>
+                  <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowUp}></FontAwesomeIcon>
+                </button>,
+                <button title="Shift pixels down" 
+                        className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" 
+                        onClick={() => transformTile((src) => shiftTile(src, 0, 1))}>
+                  <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowDown}></FontAwesomeIcon>
+                </button>,
+                <button title="Shift pixels left" 
+                        className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" 
+                        onClick={() => transformTile((src) => shiftTile(src, -1, 0))}>
+                  <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowLeft}></FontAwesomeIcon>
+                </button>,
+                <button title="Shift pixels right" 
+                        className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" 
+                        onClick={() => transformTile((src) => shiftTile(src, 1, 0))}>
+                  <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowRight}></FontAwesomeIcon>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 select-none">
+            <div>
+              <div className="text-xs text-[#222222]">Rotate&nbsp;
+                <button onClick={rotateTileCCW} className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" title="Rotate Left (90° CCW)">
                   <FontAwesomeIcon className="text-xs text-[#333333]" icon={faRotateBackward}></FontAwesomeIcon>
-              </button>,
-              <button onClick={rotateTileCW} className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" title="Rotate Right (90° CW)">
+                </button>,
+                <button onClick={rotateTileCW} className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" title="Rotate Right (90° CW)">
                   <FontAwesomeIcon className="text-xs text-[#333333]" icon={faRotateForward}></FontAwesomeIcon>
-              </button>
+                </button>
+              </div>
             </div>
           </div>
-        </div>                
-        <div className="flex flex-col gap-1 select-none">
-          <div>
-            <div className="text-xs text-[#222222]">Flip&nbsp; 
-              <button onClick={flipTileH} className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" title="Flip Horizontal">
+          <div className="flex flex-col gap-1 select-none">
+            <div>
+              <div className="text-xs text-[#222222]">Flip&nbsp;
+                <button onClick={flipTileH} className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" title="Flip Horizontal">
                   <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowsLeftRight}></FontAwesomeIcon>
-              </button>,
-              <button onClick={flipTileV} className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" title="Flip Vertical">
+                </button>,
+                <button onClick={flipTileV} className="p-1 rounded-md text-sm bg-transparent hover:bg-blue-100 active:bg-blue-200 active:text-white" title="Flip Vertical">
                   <FontAwesomeIcon className="text-xs text-[#333333]" icon={faArrowsUpDown}></FontAwesomeIcon>
-              </button>
+                </button>
+              </div>
             </div>
           </div>
-        </div>                
 
-      </div>
-    </DraggableWindow>
-    
+        </div>
+      </DraggableWindow>
+
     </Fragment>
   );
 }

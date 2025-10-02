@@ -175,3 +175,15 @@ export function moveItem<T>(arr: T[], from: number, to: number): T[] {
   newArr.splice(to, 0, moved);            // insert at new position
   return newArr;
 }
+
+export function parseHexColor(hex: string) : { r: number, g: number, b: number} | undefined {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex);
+  if (!m) return undefined;
+  const n = parseInt(m[1], 16);
+  return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
+}
+
+export function toHexColor(r: number, g: number, b: number) {
+  const h = ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
+  return `#${h.toString(16).padStart(6, "0")}`.toUpperCase();
+}

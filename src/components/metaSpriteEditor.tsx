@@ -1,4 +1,5 @@
 "use client";
+import { SCALE } from "@/app/constants";
 import { MetaSpriteEntry, Tile } from "@/types/editorTypes";
 import React, { useRef, useCallback, useEffect } from "react";
 
@@ -16,7 +17,7 @@ export function MetaSpriteEditor(
   }) {
 
   const logicalTile = 8; // your underlying tile size
-  const scale = 3; // scale factor (so each cell = 16px)
+  const scale = SCALE; // scale factor (so each cell = 16px)
   const cols = 16;
   const rows = 16;
   const cellSize = logicalTile * scale; // 16
@@ -68,7 +69,7 @@ export function MetaSpriteEditor(
   }
 
   const drawMeta = useCallback(() => {
-    const scale = 3; // preview scale per pixel
+    const scale = SCALE; // preview scale per pixel
     const c = canvasRef.current;
     if (!c) return;
     c.width = 8 * cols * scale + 4;

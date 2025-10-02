@@ -1,4 +1,5 @@
 "use client";
+import { SCALE } from "@/app/constants";
 import { indexToRowCol } from "@/helpers";
 import { Cell, Tile } from "@/types/editorTypes";
 import React, { useRef, useCallback, useEffect } from "react";
@@ -16,12 +17,12 @@ export function Tilesheet(
 
   // ----- grid config -----
   const logicalTile = 8; // your underlying tile size
-  const scale = 3; // scale factor (so each cell = 16px)
+  const scale = SCALE; // scale factor (so each cell = 16px)
   const cols = 16;
   const rows = 16;
   const cellSize = logicalTile * scale; // 16
-  const cssWidth = cols * cellSize; // 256
-  const cssHeight = rows * cellSize; // 256
+  const cssWidth = (cols * cellSize) + 4; // 256
+  const cssHeight = (rows * cellSize) + 4; // 256
 
   const tilesheetCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -33,8 +34,8 @@ export function Tilesheet(
     // Backing store size (actual pixels) vs CSS size (layout pixels)
     c.width = Math.round(cssWidth * dpr);
     c.height = Math.round(cssHeight * dpr);
-    c.style.width = `${cssWidth}px`;
-    c.style.height = `${cssHeight}px`;
+    c.style.width = `${cssWidth + 4}px`;
+    c.style.height = `${cssHeight + 4}px`;
 
     const ctx = c.getContext("2d");
     if (!ctx) return;
