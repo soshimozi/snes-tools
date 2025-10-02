@@ -9,7 +9,7 @@ import { v4 as uuid } from "uuid";
 import { MultiSelect } from "./MultiSelect";
 import { SingleSelectList } from "./singleSelectList";
 import { MetaSpriteEditor } from "./metaSpriteEditor";
-import { Tilesheet } from "./tilesheet";
+import { Region, Tilesheet } from "./tilesheet";
 import { decodeSNES4bppTile, download, encodeSNES4bppTile, exportCGRAMBGR15, makeBlankTile, makeTiles, moveItem, parseHexColor, renderTilesheetToCanvas, renderTileToCanvas, tileIndex } from "@/helpers";
 import { SCALE, TILE_H, TILE_W } from "@/app/constants";
 import { ChevronButton } from "./chevronButton";
@@ -156,6 +156,7 @@ export default function SNESpriteEditor() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawGrid, setDrawGrid] = useState(true);
+  const [selectedTileRegion, setSelectedTileRegion] = useState<Region | undefined>();
 
 
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -751,6 +752,12 @@ const onPick = useCallback((node: MenuNode) => {
     setDrawerOpen(false); // close on selection (overlay mode)
   }, [selectedTileCell]);  
 
+  function selectTile(selected: Cell): void {
+      setSelectedTileCell(selected);
+      setShowSpriteEditor(true);
+      setCurrentTile(tileIndex(selected?.row ?? 0, selected?.col ?? 0));
+  }
+
   return (
 
     <Fragment>
@@ -837,7 +844,7 @@ const onPick = useCallback((node: MenuNode) => {
               </div>
 
               <div className="flex flex-col">
-                <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
+                <div className="mb-2 p-1 rounded-lg border-2 border-blue-400 bg-transparent">
                   <MetaSpriteEditor
                     entries={currentMetaSpriteEntries}
                     tilesheets={tilesheets}
@@ -954,12 +961,15 @@ const onPick = useCallback((node: MenuNode) => {
 
                 </div>
                 <div className="flex flex-col">
-                  <div className="mb-2 p-1 rounded-lg border border-indigo-900 bg-indigo-300">
-                    <Tilesheet tiles={currentTiles} palette={palettes[currentPalette]} selected={selectedTileCell} onSelected={(selected) => {
-                      setSelectedTileCell(selected);
-                      setShowSpriteEditor(true);
-                      setCurrentTile(tileIndex(selected?.row ?? 0, selected?.col ?? 0))
-                    }} />
+                  <div className="mb-2 p-1 rounded-lg border-2 border-blue-400 bg-transparent">
+                    <Tilesheet tiles={currentTiles} 
+                                palette={palettes[currentPalette]} 
+                                selected={selectedTileCell} 
+                                onSelected={selectTile} 
+                                selectedRegion={selectedTileRegion} 
+                                onRegionSelected={function (region?: Region): void {
+                                    setSelectedTileRegion(region);
+                                }} />
                   </div>
                   <div className="flex justify-end">
                     {selectedTileCell && <span className="text-xs">Selected Tile: {tileIndex(selectedTileCell?.row ?? 0, selectedTileCell?.col ?? 0)}</span>}
