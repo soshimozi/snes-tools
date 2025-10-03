@@ -1,6 +1,6 @@
 // DrawerMenu.tsx
 import React, { useState, useMemo } from "react";
-import type { MenuNode } from "./menu";
+import type { MenuNode } from "./Menu";
 
 function Chevron({ open }: { open: boolean }) {
   return (

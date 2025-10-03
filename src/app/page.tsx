@@ -1,5 +1,5 @@
 import Image from "next/image";
-import SNESpriteEditor from "../components/snesSpriteEditor";
+import SNESpriteEditor from "../components/SnesSpriteEditor";
 import Link from "next/link";
 
 

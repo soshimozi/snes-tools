@@ -1,4 +1,4 @@
-import { parseHexColor, toHexColor } from "@/helpers";
+import { parseHexColor, toHexColor } from "@/Helpers";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 /* ---------- helpers ---------- */

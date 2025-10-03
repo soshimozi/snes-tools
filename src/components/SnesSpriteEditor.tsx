@@ -1,25 +1,25 @@
 "use client"
 
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { DraggableWindow } from "./draggableWindow";
+import { DraggableWindow } from "./DraggableWindow";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faArrowDown, faArrowDownUpAcrossLine, faArrowLeft, faArrowRight, faArrowsLeftRight, faArrowsUpDown, faArrowUp, faChevronUp, faEraser, faEyeDropper, faFillDrip, faPaintBrush, faRotateBackward, faRotateForward, IconDefinition } from "@fortawesome/free-solid-svg-icons";
-import { Cell, HistoryEntry, Metasprite, MetaSpriteEntry, Palette, Sheet, Tile, Tool } from "@/types/editorTypes";
+import { Cell, HistoryEntry, Metasprite, MetaSpriteEntry, Palette, Sheet, Tile, Tool } from "@/types/EditorTypes";
 import { v4 as uuid } from "uuid";
 import { MultiSelect } from "./MultiSelect";
-import { SelectList } from "./singleSelectList";
-import { MetaSpriteEditor } from "./metaSpriteEditor";
-import { Region, Tilesheet } from "./tilesheet";
-import { decodeSNES4bppTile, download, encodeSNES4bppTile, exportCGRAMBGR15, makeBlankTile, makeTiles, moveItem, parseHexColor, renderTilesheetToCanvas, renderTileToCanvas, tileIndex } from "@/helpers";
+import { SelectList } from "./SingleSelectList";
+import { MetaSpriteEditor } from "./MetaSpriteEditor";
+import { Region, Tilesheet } from "./Tilesheet";
+import { decodeSNES4bppTile, download, encodeSNES4bppTile, exportCGRAMBGR15, makeBlankTile, makeTiles, moveItem, parseHexColor, renderTilesheetToCanvas, renderTileToCanvas, tileIndex } from "@/Helpers";
 import { SCALE, TILE_H, TILE_W } from "@/app/constants";
-import { ChevronButton } from "./chevronButton";
-import ColorPicker555 from "./colorPicker555";
-import StyledButton from "./styledButton";
-import SytledCheckbox from "./styledCheckbox";
-import StyledCheckbox from "./styledCheckbox";
-import { LeftDrawer } from "./leftDrawer";
-import { menuTree, type MenuNode } from "./menu";
-import { DrawerMenu } from "./drawerMenu";
+import { ChevronButton } from "./ChevronButton";
+import ColorPicker555 from "./ColorPicker555";
+import StyledButton from "./StyledButton";
+import SytledCheckbox from "./StyledCheckbox";
+import StyledCheckbox from "./StyledCheckbox";
+import { LeftDrawer } from "./LeftDrawer";
+import { menuTree, type MenuNode } from "./Menu";
+import { DrawerMenu } from "./DrawerMenu";
 import { RegexIcon } from "lucide-react";
 
 // Types
