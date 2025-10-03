@@ -358,27 +358,38 @@ export default function SNESpriteEditor() {
     return out;
   };
 
-  // need to do this with collection
   const shiftMetaSprite = (dx: number, dy: number) => {
-
     const scale = SCALE * 8 * 16;
     const wrap = (n: number) => (((n % scale) + scale) % scale);
 
-    // setMetaSprites(prev => {
+    console.log('shift meta sprite');
 
-    //   return prev.map((item, idx) => {
-    //     if (idx !== currentMetasprite) return item;
+    // Fast lookup for selected ids
+    const sel = new Set(selectedIds);
+    if (sel.size === 0) return; // nothing selected
 
-    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, x: wrap(entry.x + dx), y: wrap(entry.y + dy)} : entry);
-
-    //     return {
-    //       ...item,
-    //       entries: updated
-    //     }
-    //   })
-    // })                          
+    console.log('we have a selection');
 
 
+
+    setMetaSprites(prev =>
+      prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
+
+        let anyChanged = false;
+        const updated = item.entries.map(entry => {
+          if (!sel.has(entry.id)) return entry;
+          anyChanged = true;
+          return {
+            ...entry,
+            x: wrap(entry.x + dx),
+            y: wrap(entry.y + dy),
+          };
+        });
+
+        return anyChanged ? { ...item, entries: updated } : item;
+      })
+    );
   };
 
   // need to do this with collection
@@ -398,45 +409,68 @@ export default function SNESpriteEditor() {
   }
 
   const flipHorizontal = () => {
-    // if (!selectedId) return;
+    if (!selectedIds?.length) return;
 
-    // setMetaSprites(prev => {
+    setMetaSprites(prev =>
+      prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
 
-    //   return prev.map((item, idx) => {
-    //     if (idx !== currentMetasprite) return item;
+        const sel = new Set(selectedIds);
+        let changed = false;
 
-    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, h: !entry.h} : entry);
+        const updated = item.entries.map(entry => {
+          if (!sel.has(entry.id)) return entry;
+          changed = true;
+          return { ...entry, h: !entry.h };
+        });
 
-    //     return {
-    //       ...item,
-    //       entries: updated
-    //     }
-    //   })
-    // })                          
-
+        return changed ? { ...item, entries: updated } : item;
+      })
+    );                
   }
 
   const flipVertical = () => {
-    // if (!selectedId) return;
+    if (!selectedIds?.length) return;
 
-    // setMetaSprites(prev => {
+    setMetaSprites(prev =>
+      prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
 
-    //   return prev.map((item, idx) => {
-    //     if (idx !== currentMetasprite) return item;
+        const sel = new Set(selectedIds);
+        let changed = false;
 
-    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, v: !entry.v} : entry);
+        const updated = item.entries.map(entry => {
+          if (!sel.has(entry.id)) return entry;
+          changed = true;
+          return { ...entry, v: !entry.v };
+        });
 
-    //     return {
-    //       ...item,
-    //       entries: updated
-    //     }
-    //   })
-    // })                          
+        return changed ? { ...item, entries: updated } : item;
+      })
+    );                        
 
 
   }
 
   const rotateMetaSpriteCCW = () => {
+    if (!selectedIds?.length) return;
+
+    setMetaSprites(prev =>
+      prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
+
+        const sel = new Set(selectedIds);
+        let changed = false;
+
+        const updated = item.entries.map(entry => {
+          if (!sel.has(entry.id)) return entry;
+          changed = true;
+          return { ...entry, r: (entry.r - 1) % 4 };
+        });
+
+        return changed ? { ...item, entries: updated } : item;
+      })
+    );    
     // if (!selectedId) return;
 
     // setMetaSprites(prev => {
@@ -457,23 +491,24 @@ export default function SNESpriteEditor() {
 
 
   const rotateMetaSpriteCW = () => {
-    // if (!selectedId) return;
+    if (!selectedIds?.length) return;
 
-    // setMetaSprites(prev => {
+    setMetaSprites(prev =>
+      prev.map((item, idx) => {
+        if (idx !== currentMetasprite) return item;
 
-    //   return prev.map((item, idx) => {
-    //     if (idx !== currentMetasprite) return item;
+        const sel = new Set(selectedIds);
+        let changed = false;
 
-    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, r: (entry.r + 1) % 4} : entry);
+        const updated = item.entries.map(entry => {
+          if (!sel.has(entry.id)) return entry;
+          changed = true;
+          return { ...entry, r: (entry.r + 1) % 4 };
+        });
 
-    //     return {
-    //       ...item,
-    //       entries: updated
-    //     }
-    //   })
-    // })                          
-
-    
+        return changed ? { ...item, entries: updated } : item;
+      })
+    );    
   }
 
   const paletteView = useMemo(
