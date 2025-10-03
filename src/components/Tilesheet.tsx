@@ -1,7 +1,7 @@
 "use client";
 import { SCALE } from "@/app/constants";
-import { indexToRowCol } from "@/helpers";
-import { Cell, Tile } from "@/types/editorTypes";
+import { indexToRowCol } from "@/Helpers";
+import { Cell, Tile } from "@/types/EditorTypes";
 import React, { useRef, useCallback, useEffect, useState } from "react";
 
 /** Region is expressed in tile units (cols/rows) with a tile-aligned top-left */
@@ -244,7 +244,7 @@ const handlePointerUp: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
   const moved = (start as any).moved;
   setDraftRegion(null);
 
-  if (!moved) {
+  if (!moved || (draftRegion?.cols === 1 && draftRegion?.rows === 1)) {
     // No drag → clear region selection
     onRegionSelected(undefined);
     return;

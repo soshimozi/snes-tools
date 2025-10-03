@@ -1,6 +1,6 @@
 "use client";
 import { SCALE } from "@/app/constants";
-import { MetaSpriteEntry, Sheet, Tile } from "@/types/editorTypes";
+import { MetaSpriteEntry, Sheet, Tile } from "@/types/EditorTypes";
 import React, { useRef, useCallback, useEffect } from "react";
 
 export function MetaSpriteEditor(

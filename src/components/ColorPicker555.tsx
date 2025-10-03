@@ -1,4 +1,4 @@
-import { parseHexColor, toHexColor } from "@/helpers";
+import { parseHexColor, toHexColor } from "@/Helpers";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 /* ---------- helpers ---------- */
@@ -43,7 +43,6 @@ export default function ColorPicker555Controlled({ value, onColorChange, classNa
     const normalizedHexColor = toHexColor(color.r & 0xf8, color.g & 0xf8, color.b & 0xf8);
 
     const bgrHexColor = (((color.b & 0xf8) >> 3) << 10) | (((color.g & 0xf8) >> 3) << 5) | (((color.r & 0xf8) >> 3) & 0x1f);
-    console.log('bgrHexColor: ', bgrHexColor.toString(16).padStart(4, '0'));
 
     emit(normalizedHexColor, bgrHexColor);
   }, [emit]);

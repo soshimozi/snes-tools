@@ -1,4 +1,4 @@
-import SNESpriteEditor from "@/components/snesSpriteEditor";
+import SNESpriteEditor from "@/components/SnesSpriteEditor";
 
 export default function Home() {
   return (

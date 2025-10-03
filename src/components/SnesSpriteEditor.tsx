@@ -1,25 +1,26 @@
 "use client"
 
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { DraggableWindow } from "./draggableWindow";
+import { DraggableWindow } from "./DraggableWindow";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faArrowDown, faArrowDownUpAcrossLine, faArrowLeft, faArrowRight, faArrowsLeftRight, faArrowsUpDown, faArrowUp, faChevronUp, faEraser, faEyeDropper, faFillDrip, faPaintBrush, faRotateBackward, faRotateForward, IconDefinition } from "@fortawesome/free-solid-svg-icons";
-import { Cell, HistoryEntry, Metasprite, MetaSpriteEntry, Palette, Sheet, Tile, Tool } from "@/types/editorTypes";
+import { Cell, HistoryEntry, Metasprite, MetaSpriteEntry, Palette, Sheet, Tile, Tool } from "@/types/EditorTypes";
 import { v4 as uuid } from "uuid";
 import { MultiSelect } from "./MultiSelect";
-import { SingleSelectList } from "./singleSelectList";
-import { MetaSpriteEditor } from "./metaSpriteEditor";
-import { Region, Tilesheet } from "./tilesheet";
-import { decodeSNES4bppTile, download, encodeSNES4bppTile, exportCGRAMBGR15, makeBlankTile, makeTiles, moveItem, parseHexColor, renderTilesheetToCanvas, renderTileToCanvas, tileIndex } from "@/helpers";
+import { SelectList } from "./SingleSelectList";
+import { MetaSpriteEditor } from "./MetaSpriteEditor";
+import { Region, Tilesheet } from "./Tilesheet";
+import { decodeSNES4bppTile, download, encodeSNES4bppTile, exportCGRAMBGR15, makeBlankTile, makeTiles, moveItem, parseHexColor, renderTilesheetToCanvas, renderTileToCanvas, tileIndex } from "@/Helpers";
 import { SCALE, TILE_H, TILE_W } from "@/app/constants";
-import { ChevronButton } from "./chevronButton";
-import ColorPicker555 from "./colorPicker555";
-import StyledButton from "./styledButton";
-import SytledCheckbox from "./styledCheckbox";
-import StyledCheckbox from "./styledCheckbox";
-import { LeftDrawer } from "./leftDrawer";
-import { menuTree, type MenuNode } from "./menu";
-import { DrawerMenu } from "./drawerMenu";
+import { ChevronButton } from "./ChevronButton";
+import ColorPicker555 from "./ColorPicker555";
+import StyledButton from "./StyledButton";
+import SytledCheckbox from "./StyledCheckbox";
+import StyledCheckbox from "./StyledCheckbox";
+import { LeftDrawer } from "./LeftDrawer";
+import { menuTree, type MenuNode } from "./Menu";
+import { DrawerMenu } from "./DrawerMenu";
+import { RegexIcon } from "lucide-react";
 
 // Types
 // export type Palette = string[]; // 16 hex colors: "#RRGGBB"
@@ -154,7 +155,7 @@ export default function SNESpriteEditor() {
   const [showSpriteEditor, setShowSpriteEditor] = useState(false);
   const [highlightSelected, setHighlightSelected] = useState(true);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [drawGrid, setDrawGrid] = useState(true);
   const [selectedTileRegion, setSelectedTileRegion] = useState<Region | undefined>();
 
@@ -210,17 +211,26 @@ export default function SNESpriteEditor() {
   );
 
   // Prune selection if it no longer exists after an update
-  useEffect(() => {
-    if (!selectedId) return;
-    const exists = options.some((o) => o.value === selectedId);
-    if (!exists) setSelectedId(null);
-  }, [options, selectedId]);
+  // useEffect(() => {
+  //   if (selectedIds.length === 0) return;
+  //   //onst exists = options.some((o) => o.value === selectedId);
+  //   const exists = options.some((o) => values.includes(o.value));
+  //   if (!exists) setSelectedId(null);
+  // }, [options, selectedIds]);
 
   // (Optional) get the selected entry
-  const selectedEntry = useMemo(() => {
-    const id = selectedId;
-    return id ? currentMetaSpriteEntries.find((e) => keyOfMetaSpriteEntry(e) === id) ?? undefined : undefined;
-  }, [selectedId, currentMetaSpriteEntries]);
+  const selectedEntries = useMemo(() => {
+    const entries:MetaSpriteEntry[] = [];
+    for(let i = 0; i < selectedIds.length; i++) {
+      const entry = currentMetaSpriteEntries.find((e) => keyOfMetaSpriteEntry(e) === selectedIds[i]);
+      if(!entry) continue;
+
+      entries.push(entry)
+    }
+
+    return entries;
+
+  }, [selectedIds, currentMetaSpriteEntries]);
 
   const currentRed = useMemo(() => {
     const colorHex = palettes[currentPalette][currentColor];
@@ -384,8 +394,7 @@ export default function SNESpriteEditor() {
 
   const transformTile = useCallback((fn: (src: Tile) => Tile) => {
 
-    console.log('transformTile: ', currentTilesheet);
-    
+   
     setTilesheets(prev => {
 
       return prev.map((item, idx) => {
@@ -446,19 +455,19 @@ export default function SNESpriteEditor() {
     const scale = SCALE * 8 * 16;
     const wrap = (n: number) => (((n % scale) + scale) % scale);
 
-    setMetaSprites(prev => {
+    // setMetaSprites(prev => {
 
-      return prev.map((item, idx) => {
-        if (idx !== currentMetasprite) return item;
+    //   return prev.map((item, idx) => {
+    //     if (idx !== currentMetasprite) return item;
 
-        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, x: wrap(entry.x + dx), y: wrap(entry.y + dy)} : entry);
+    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, x: wrap(entry.x + dx), y: wrap(entry.y + dy)} : entry);
 
-        return {
-          ...item,
-          entries: updated
-        }
-      })
-    })                          
+    //     return {
+    //       ...item,
+    //       entries: updated
+    //     }
+    //   })
+    // })                          
 
 
   };
@@ -480,80 +489,80 @@ export default function SNESpriteEditor() {
   }
 
   const flipHorizontal = () => {
-    if (!selectedId) return;
+    // if (!selectedId) return;
 
-    setMetaSprites(prev => {
+    // setMetaSprites(prev => {
 
-      return prev.map((item, idx) => {
-        if (idx !== currentMetasprite) return item;
+    //   return prev.map((item, idx) => {
+    //     if (idx !== currentMetasprite) return item;
 
-        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, h: !entry.h} : entry);
+    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, h: !entry.h} : entry);
 
-        return {
-          ...item,
-          entries: updated
-        }
-      })
-    })                          
+    //     return {
+    //       ...item,
+    //       entries: updated
+    //     }
+    //   })
+    // })                          
 
   }
 
   const flipVertical = () => {
-    if (!selectedId) return;
+    // if (!selectedId) return;
 
-    setMetaSprites(prev => {
+    // setMetaSprites(prev => {
 
-      return prev.map((item, idx) => {
-        if (idx !== currentMetasprite) return item;
+    //   return prev.map((item, idx) => {
+    //     if (idx !== currentMetasprite) return item;
 
-        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, v: !entry.v} : entry);
+    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, v: !entry.v} : entry);
 
-        return {
-          ...item,
-          entries: updated
-        }
-      })
-    })                          
+    //     return {
+    //       ...item,
+    //       entries: updated
+    //     }
+    //   })
+    // })                          
 
 
   }
 
   const rotateMetaSpriteCCW = () => {
-    if (!selectedId) return;
+    // if (!selectedId) return;
 
-    setMetaSprites(prev => {
+    // setMetaSprites(prev => {
 
-      return prev.map((item, idx) => {
-        if (idx !== currentMetasprite) return item;
+    //   return prev.map((item, idx) => {
+    //     if (idx !== currentMetasprite) return item;
 
-        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, r: (entry.r - 1) % 4} : entry);
+    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, r: (entry.r - 1) % 4} : entry);
 
-        return {
-          ...item,
-          entries: updated
-        }
-      })
-    })                          
+    //     return {
+    //       ...item,
+    //       entries: updated
+    //     }
+    //   })
+    // })                          
 
   }
 
 
   const rotateMetaSpriteCW = () => {
-    if (!selectedId) return;
+    // if (!selectedId) return;
 
-    setMetaSprites(prev => {
+    // setMetaSprites(prev => {
 
-      return prev.map((item, idx) => {
-        if (idx !== currentMetasprite) return item;
+    //   return prev.map((item, idx) => {
+    //     if (idx !== currentMetasprite) return item;
 
-        const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, r: (entry.r + 1) % 4} : entry);
+    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, r: (entry.r + 1) % 4} : entry);
 
-        return {
-          ...item,
-          entries: updated
-        }
-      })
-    })                          
+    //     return {
+    //       ...item,
+    //       entries: updated
+    //     }
+    //   })
+    // })                          
 
     
   }
@@ -619,8 +628,6 @@ export default function SNESpriteEditor() {
 
   const handleRedChanged = ((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(e.target.value);
-
-    console.log('value: ', value)
 
     var color = currentColorValue;
     if (!color) return;
@@ -709,22 +716,64 @@ export default function SNESpriteEditor() {
   }, [currentTile, currentPalette, currentTilesheet]);
 
   const updateMetasprite = ({row, col} : {row: number, col: number}) => {
-    if(!selectedTileCell) return;
+    if(!selectedTileCell && !selectedTileRegion) return;
 
-    const newEntry =  createMetaspriteEntry(col, row);
-    setMetaSprites(prev => {
+    console.log('row: ', row, ', col: ', col)
 
-      return prev.map((item, idx) => {
-        if (idx !== currentMetasprite) return item;
+    if(selectedTileRegion) 
+    {
+      const newEntries:MetaSpriteEntry[] = [];
 
-        return {
-          ...item,
-          entries: [...item.entries, newEntry]
+      // handle region
+      for(let y = 0; y < selectedTileRegion.rows; y++) {
+        for(let x = 0; x < selectedTileRegion.cols; x++) {
+          const locationX = col + (x * SCALE * 8);
+          const locationY = row + (y * SCALE * 8);
+
+          const newEntry = createMetaspriteEntry(locationX, locationY);
+
+          const tileRow = (selectedTileRegion.row);
+          const tileCol = (selectedTileRegion.col);
+
+          console.log('tileRow: ', tileRow);
+          console.log('tileCol: ', tileCol);
+
+          newEntry.tileIndex = tileIndex(selectedTileRegion.row + y, selectedTileRegion.col + x);
+
+          newEntries.push(newEntry);
         }
-      })
-    })                          
+      }
 
-    setSelectedId(newEntry.id);
+      setMetaSprites(prev => {
+
+        return prev.map((item, idx) => {
+          if (idx !== currentMetasprite) return item;
+
+          return {
+            ...item,
+            entries: [...item.entries, ...newEntries]
+          }
+        })
+      })
+
+      // need to support multiple select on the selected entries
+    }
+    else {
+      const newEntry =  createMetaspriteEntry(col, row);
+      setMetaSprites(prev => {
+
+        return prev.map((item, idx) => {
+          if (idx !== currentMetasprite) return item;
+
+          return {
+            ...item,
+            entries: [...item.entries, newEntry]
+          }
+        })
+      })
+
+      setSelectedIds([newEntry.id]);
+    }
 
   }
 
@@ -851,7 +900,7 @@ const onPick = useCallback((node: MenuNode) => {
                     drawGrid={drawGrid}
                     palettes={palettes}
                     highlightSelected={highlightSelected}
-                    selected={selectedEntry}
+                    selected={selectedEntries[0]}
                     onClick={updateMetasprite}
                   />
                 </div>
@@ -887,11 +936,11 @@ const onPick = useCallback((node: MenuNode) => {
                         <ChevronButton title="Rotate CW" direction="rotate-cw" onClick={() => rotateMetaSpriteCW()} />
                       </div>
                     </div>
-                    <div className="flex flex-col w-130">
+                    <div className="flex flex-col w-130 gap-1">
                       <div className="flex flex-row justify-between items-center"><span className="mt-1 text-sm">List of Sprites {currentMetaSpriteEntries.length}</span>
                         <StyledButton width={35} className="h-5" onClick={deleteAll}>Clear</StyledButton>
                       </div>
-                      <SingleSelectList
+                      <SelectList
                         maxHeight={200}
                         onDrop={(fromIndex, toIndex) => {
                           setMetaSprites(prev => {
@@ -908,31 +957,40 @@ const onPick = useCallback((node: MenuNode) => {
                             })
                           })                          
 
-                          // setMetaSpriteEntries(prev => moveItem(prev, fromIndex, toIndex));
+
+                        }}
+
+                        onDropMulti={(fromIndices, toIndex) => {
+                          console.log('onDropMulti. fromIndices: ', fromIndices, ', toIndex: ', toIndex);
                         }}
                         options={options}
-                        value={selectedId}
+
+                        values={selectedIds}
+
                         onDeleteItem={(index) => {
-                          setMetaSprites(prev => {
 
-                            return prev.map((item, idx) => {
-                              if (idx !== currentMetasprite) return item;
+                            setMetaSprites(prev => {
 
-                              const updated = item.entries.filter(a => a.id !== index);
+                              return prev.map((item, idx) => {
+                                if (idx !== currentMetasprite) return item;
 
-                              return {
-                                ...item,
-                                entries: updated
-                              }
-                            })
-                          })                          
+                                const updated = item.entries.filter(a => a.id !== index);
 
-                        }
-                          //setMetaSpriteEntries(prev => prev.filter(a => a.id !== index))
-                        }
+                                return {
+                                  ...item,
+                                  entries: updated
+                                }
+                              });
+
+                            });                          
+
+                        }}
+
                         onChange={(id) => {
-                          setSelectedId(id);
-                        }} />
+                          setSelectedIds(id);
+                        }} 
+                        
+                        />
                     </div>
                   </div>
                 </div>

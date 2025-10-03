@@ -1,5 +1,5 @@
 import { TILE_H, TILE_W } from "./app/constants";
-import { Palette, Tile } from "./types/editorTypes";
+import { Palette, Tile } from "./types/EditorTypes";
 
 // Reverse: given index → (row, col)
 // Forward (for reference)
