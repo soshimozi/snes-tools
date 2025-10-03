@@ -120,35 +120,18 @@ export function MetaSpriteEditor(
         }
       }
     });    
-    // Pure render: draw tiles as-is in A/B/C/D positions, no flips or offsets
-    // entries.forEach((e, i) => {
 
-    //   const dx = e.x; // * 8 * scale;
-    //   const dy = e.y; // * 8 * scale;
-    //   const tile = tilesheets[e.tileSheetIndex].tiles[e.tileIndex];
-
-    //   for (let y = 0; y < 8; y++) {
-    //     for (let x = 0; x < 8; x++) {
-    //       const pix = getTilePixel(tile, x, y, e.h, e.v, e.r);
-    //       if( pix !== 0) {
-    //         const wx = dx + (x * scale);
-    //         const wy = dy + (y * scale);
-    //         ctx.fillStyle =  palettes[e.paletteIndex][pix] ?? "#000";
-    //         ctx.fillRect(wx, wy, scale, scale);
-    //       }
-    //     }
-    //   }
-    // });
-    
-    if(highlightSelected && selected) {
-      const row = selected.y;
-      const col = selected.x;
+    if (highlightSelected && selected) {
+      const tileW = 8 * scale;
+      const tileH = 8 * scale;
+      const positions = wrappedPositions(selected.x, selected.y, tileW, tileH, WRAP_W, WRAP_H);
 
       ctx.lineWidth = 2;
-      ctx.strokeStyle = "#fff"
-      ctx.beginPath();
-      ctx.strokeRect(col, row, 8 * scale, 8 * scale);
-    }
+      ctx.strokeStyle = "#fff";
+      for (const [bx, by] of positions) {
+        ctx.strokeRect(bx, by, tileW, tileH);
+      }
+    }    
 
     if(drawGrid) {
       ctx.lineWidth = 1;
@@ -208,6 +191,6 @@ export function MetaSpriteEditor(
     <canvas
       ref={canvasRef}
       onPointerDown={handlePointerDown}
-      style={{ border: "1px solid #ccc", imageRendering: "pixelated", cursor: "pointer", borderRadius: "4px" }} />
+      style={{ border: "none", imageRendering: "pixelated", cursor: "pointer", borderRadius: "4px" }} />
   );
 }

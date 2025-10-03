@@ -35,3 +35,17 @@ export type Metasprite = {
 export type Sheet = {
   tiles: number[][][]
 }
+
+/** Region is expressed in tile units (cols/rows) with a tile-aligned top-left */
+export type Region = {
+  col: number;   // left (tile)
+  row: number;   // top (tile)
+  cols: number;  // width  (in tiles)
+  rows: number;  // height (in tiles)
+};
+
+export type TileRegionPayload = {
+  tiles: Tile[];   // row-major tiles
+  rows: number;    // height (in tiles)
+  cols: number;    // width  (in tiles)
+};

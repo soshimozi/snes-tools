@@ -1,5 +1,5 @@
 import { TILE_H, TILE_W } from "./app/constants";
-import { Palette, Tile } from "./types/EditorTypes";
+import { Cell, Palette, Region, Tile, TileRegionPayload } from "./types/EditorTypes";
 
 // Reverse: given index → (row, col)
 // Forward (for reference)
@@ -36,9 +36,9 @@ export const tileIndex = (row: number, col: number, cols = 16) => {
   // Equivalent colSkew form: (col << 1) - (col & 1)
 };
 
-export function makeBlankTile(): Tile {
-  return Array.from({ length: TILE_H }, () => Array(TILE_W).fill(0));
-}
+// export function makeBlankTile(): Tile {
+//   return Array.from({ length: TILE_H }, () => Array(TILE_W).fill(0));
+// }
 
 export function makeTiles(): Tile[] {
   return Array.from({ length: 256}, () => Array.from({ length: TILE_H }, () => Array(TILE_W).fill(0)))
@@ -186,4 +186,266 @@ export function parseHexColor(hex: string) : { r: number, g: number, b: number} 
 export function toHexColor(r: number, g: number, b: number) {
   const h = ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
   return `#${h.toString(16).padStart(6, "0")}`.toUpperCase();
+}
+
+// Types you already have:
+// type Tile = number[][];        // 8x8 (or similar) palette indexes
+// type Region = { col: number; row: number; cols: number; rows: number; };
+// type Cell = { col: number; row: number };
+
+/** Build a fast inverse map for your (row,col)->index using your indexToRowCol */
+function buildRowColToIndex(
+  totalTiles: number,
+  indexToRowCol: (i: number) => { row: number; col: number }
+) {
+  const map = new Map<string, number>();
+  for (let i = 0; i < totalTiles; i++) {
+    const { row, col } = indexToRowCol(i);
+    map.set(`${row},${col}`, i);
+  }
+  return (row: number, col: number) => {
+    const idx = map.get(`${row},${col}`);
+    if (idx === undefined) throw new Error(`No tile at row=${row}, col=${col}`);
+    return idx;
+  };
+}
+
+const deepCopyTile = (t: Tile): Tile => t.map(r => r.slice());
+
+/**
+ * Extracts a rectangular region of tiles (tile-aligned) into a flat array,
+ * row-major (top->bottom, left->right). Clamps to the sheet bounds.
+ *
+ * @param tiles       Full tilesheet (length = gridCols * gridRows)
+ * @param region      Region in tile units
+ * @param gridCols    Tile columns in the sheet (default 16)
+ * @param gridRows    Tile rows in the sheet (default 16)
+ */
+export function extractRegionTiles(
+  tiles: Tile[],
+  region: Region,
+  gridCols = 16,
+  gridRows = 16
+): TileRegionPayload {
+  // Inverse mapping using your project’s indexToRowCol
+  const rowColToIndex = buildRowColToIndex(tiles.length, indexToRowCol);
+
+  // Clamp region to sheet bounds
+  const startCol = Math.max(0, Math.min(gridCols - 1, region.col));
+  const startRow = Math.max(0, Math.min(gridRows - 1, region.row));
+  const endCol = Math.max(0, Math.min(gridCols - 1, region.col + region.cols - 1));
+  const endRow = Math.max(0, Math.min(gridRows - 1, region.row + region.rows - 1));
+
+  const outCols = endCol - startCol + 1;
+  const outRows = endRow - startRow + 1;
+
+  const out: Tile[] = [];
+  for (let r = startRow; r <= endRow; r++) {
+    for (let c = startCol; c <= endCol; c++) {
+      const idx = rowColToIndex(r, c);
+      const tileCopy = deepCopyTile(tiles[idx]);
+      out.push(tileCopy);
+    }
+  }
+
+  return { tiles: out, cols: outCols, rows: outRows };
+}
+
+/** (Optional) convenience for single-tile copy to reuse the same clipboard shape */
+export function extractSingleTile(tiles: Tile[], cell: Cell): TileRegionPayload {
+  if (!cell) throw new Error("Cell is null");
+
+  const rowColToIndex = buildRowColToIndex(tiles.length, indexToRowCol);
+  const idx = rowColToIndex(cell.row, cell.col);
+  return { tiles: [deepCopyTile(tiles[idx])], cols: 1, rows: 1 };
+}
+
+
+export function extractRegionFromTilesheet(
+  tilesheetTiles: Tile[],             // e.g. prev[currentTilesheet].tiles
+  region: Region,
+  indexToRowCol: (i: number) => { row: number; col: number },
+  gridCols = 16,
+  gridRows = 16
+): TileRegionPayload {
+  const rowColToIndex = buildRowColToIndex(tilesheetTiles.length, indexToRowCol);
+
+  // Clamp region to sheet bounds
+  const startCol = Math.max(0, Math.min(gridCols - 1, region.col));
+  const startRow = Math.max(0, Math.min(gridRows - 1, region.row));
+  const endCol   = Math.max(0, Math.min(gridCols - 1, region.col + region.cols - 1));
+  const endRow   = Math.max(0, Math.min(gridRows - 1, region.row + region.rows - 1));
+
+  const outCols = endCol - startCol + 1;
+  const outRows = endRow - startRow + 1;
+
+  const out: Tile[] = [];
+  for (let r = startRow; r <= endRow; r++) {
+    for (let c = startCol; c <= endCol; c++) {
+      const idx = rowColToIndex(r, c);
+      if (idx < 0) continue;
+      out.push(deepCopyTile(tilesheetTiles[idx]));
+    }
+  }
+
+  return { tiles: out, cols: outCols, rows: outRows };
+}
+
+export function producePasteIntoTilesheet(
+  prevTilesheets: Array<{ tiles: Tile[]; [k: string]: any }>,
+  tilesheetIndex: number,
+  payload: TileRegionPayload,
+  at: Cell,  // destination top-left (tile coords)
+  indexToRowCol: (i: number) => { row: number; col: number },
+  gridCols = 16,
+  gridRows = 16
+) {
+  return prevTilesheets.map((sheet, i) => {
+    if(!at) throw new Error("at is null");
+
+    if (i !== tilesheetIndex) return sheet;
+
+    const rowColToIndex = buildRowColToIndex(sheet.tiles.length, indexToRowCol);
+    const nextTiles = sheet.tiles.map(deepCopyTile);
+
+    for (let r = 0; r < payload.rows; r++) {
+      for (let c = 0; c < payload.cols; c++) {
+        const destRow = at.row + r;
+        const destCol = at.col + c;
+        if (destRow < 0 || destCol < 0 || destRow >= gridRows || destCol >= gridCols) continue;
+
+        const destIdx = rowColToIndex(destRow, destCol);
+        if (destIdx < 0) continue;
+
+        const srcIdx = r * payload.cols + c;
+        nextTiles[destIdx] = deepCopyTile(payload.tiles[srcIdx]);
+      }
+    }
+
+    return { ...sheet, tiles: nextTiles };
+  });
+}
+
+/** Optional: single-tile version to keep clipboard shape consistent */
+export function extractSingleTileFromTilesheet(
+  tilesheetTiles: Tile[],
+  cell: Cell,
+  indexToRowCol: (i: number) => { row: number; col: number }
+): TileRegionPayload {
+  if(!cell) throw new Error("Cell is null");
+
+  const rowColToIndex = buildRowColToIndex(tilesheetTiles.length, indexToRowCol);
+  const idx = rowColToIndex(cell.row, cell.col);
+  if (idx < 0) throw new Error("Cell out of range");
+  return { tiles: [deepCopyTile(tilesheetTiles[idx])], cols: 1, rows: 1 };
+}
+
+export const makeBlankTile = (w = 8, h = 8): Tile => Array.from({ length: h }, () => Array(w).fill(0));
+
+export function produceDeleteRegionInTilesheet(
+  prevTilesheets: Array<{ tiles: Tile[]; [k: string]: any }>,
+  tilesheetIndex: number,
+  region: Region,
+  indexToRowCol: (i: number) => { row: number; col: number },
+  gridCols = 16,
+  gridRows = 16,
+  tileW = 8,
+  tileH = 8
+) {
+  return prevTilesheets.map((sheet, i) => {
+    if (i !== tilesheetIndex) return sheet;
+
+    const rowColToIndex = buildRowColToIndex(sheet.tiles.length, indexToRowCol);
+    const nextTiles = sheet.tiles.map(deepCopyTile);
+
+    const startCol = Math.max(0, Math.min(gridCols - 1, region.col));
+    const startRow = Math.max(0, Math.min(gridRows - 1, region.row));
+    const endCol   = Math.max(0, Math.min(gridCols - 1, region.col + region.cols - 1));
+    const endRow   = Math.max(0, Math.min(gridRows - 1, region.row + region.rows - 1));
+
+    for (let r = startRow; r <= endRow; r++) {
+      for (let c = startCol; c <= endCol; c++) {
+        const idx = rowColToIndex(r, c);
+        if (idx < 0) continue;
+        nextTiles[idx] = makeBlankTile(tileW, tileH);
+      }
+    }
+
+    return { ...sheet, tiles: nextTiles };
+  });
+}
+
+// ---- helpers ----
+const to5 = (v8: number) => Math.min(31, Math.max(0, Math.round((v8 / 255) * 31)));
+
+/** Pack #RRGGBB -> BGR555 (0b0BBBBBGGGGGRRRRR). Bit 15 is always 0. */
+function packBGR555(r8: number, g8: number, b8: number): number {
+  const r5 = to5(r8);
+  const g5 = to5(g8);
+  const b5 = to5(b8);
+  return ((b5 << 10) | (g5 << 5) | r5) & 0x7fff; // ensure bit 15 cleared
+}
+
+/**
+ * Convert Palette[] (8 x 16 colors) to a Blob of 16-bit BGR555 words.
+ * Layout: P0 C0..C15, P1 C0..C15, ... P7 C0..C15
+ */
+export function palettesToBGR555Blob(
+  palettes: Palette[],
+  {
+    palettesExpected = 8,
+    entriesPerPalette = 16,
+    littleEndian = true,
+    padWith = "#000000", // if a palette/entry is missing, pad with this
+  }: {
+    palettesExpected?: number;
+    entriesPerPalette?: number;
+    littleEndian?: boolean;
+    padWith?: string;
+  } = {}
+): {
+  blob: Blob;
+  failures: Array<{ palette: number; index: number; value: string }>;
+} {
+  const total = palettesExpected * entriesPerPalette;
+  const buf = new ArrayBuffer(total * 2);
+  const view = new DataView(buf);
+  const failures: Array<{ palette: number; index: number; value: string }> = [];
+
+  for (let p = 0; p < palettesExpected; p++) {
+    const pal = palettes[p] ?? [];
+    for (let i = 0; i < entriesPerPalette; i++) {
+      const colorStr = pal[i] ?? padWith;
+      const parsed = parseHexColor(colorStr);
+      if (!parsed) failures.push({ palette: p, index: i, value: colorStr });
+      const word = parsed ? packBGR555(parsed.r, parsed.g, parsed.b) : 0x0000;
+
+      const flatIndex = p * entriesPerPalette + i;
+      view.setUint16(flatIndex * 2, word, littleEndian);
+    }
+  }
+
+  return { blob: new Blob([buf], { type: "application/octet-stream" }), failures };
+}
+
+export function savePalettes(filename: string, palettes: Palette[], littleEndian: boolean): boolean {
+
+  const { blob, failures } = palettesToBGR555Blob(palettes, {littleEndian});
+
+  // Optional: report bad inputs
+  if (failures.length) {
+    return false;
+    console.warn("Unparseable color indexes:", failures);
+  }
+
+  // Example save (browser):
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename; //"palette_bgr555.pal";
+  a.click();
+  URL.revokeObjectURL(url);
+  
+  return true;
+
 }
