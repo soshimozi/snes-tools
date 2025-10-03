@@ -1,3 +1,5 @@
+"use client";
+
 // DrawerMenu.tsx
 import React, { useState, useMemo } from "react";
 import type { MenuNode } from "./Menu";

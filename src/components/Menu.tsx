@@ -1,3 +1,5 @@
+"use client";
+
 import { ChevronRight, Settings, Images, Layers, Palette } from "lucide-react";
 
 export type MenuNode = {
