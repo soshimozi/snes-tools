@@ -11,7 +11,7 @@ import { v4 as uuid } from "uuid";
 import { SelectList } from "./SingleSelectList";
 import { MetaSpriteEditor } from "./MetaSpriteEditor";
 import { Tilesheet } from "./Tilesheet";
-import { extractRegionFromTilesheet, extractRegionTiles, extractSingleTile, extractSingleTileFromTilesheet, indexToRowCol, makeBlankTile, makeTiles, moveItem, parseHexColor, produceDeleteRegionInTilesheet, producePasteIntoTilesheet, tileIndex } from "@/Helpers";
+import { extractRegionFromTilesheet, extractRegionTiles, extractSingleTile, extractSingleTileFromTilesheet, indexToRowCol, makeBlankTile, makeTiles, moveItem, palettesToBGR555Blob, parseHexColor, produceDeleteRegionInTilesheet, producePasteIntoTilesheet, tileIndex } from "@/Helpers";
 import { SCALE, TILE_H, TILE_W } from "@/app/constants";
 import { ChevronButton } from "./ChevronButton";
 import ColorPicker555 from "./ColorPicker555";
@@ -20,7 +20,7 @@ import StyledCheckbox from "./StyledCheckbox";
 import { LeftDrawer } from "./LeftDrawer";
 import { menuTree, type MenuNode } from "./Menu";
 import { DrawerMenu } from "./DrawerMenu";
-import { Palettes } from "@/Palette";
+import { Palettes } from "@/Palettes";
 
 
 const TILE_EDITOR_SCALE = 48;
@@ -720,9 +720,25 @@ const onPick = useCallback((node: MenuNode) => {
       case "meta-export": 
         /* open export modal */ 
         break;
-      // ...etc
-    }
-    setDrawerOpen(false); // close on selection (overlay mode)
+
+      case "pal-save-full":
+        const { blob, failures } = palettesToBGR555Blob(palettes, /* littleEndian */ {littleEndian: true});
+
+        // Optional: report bad inputs
+        if (failures.length) {
+          console.warn("Unparseable color indexes:", failures);
+        }
+
+        // Example save (browser):
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "palette_bgr555.pal";
+        a.click();
+        URL.revokeObjectURL(url);        
+        break;
+      }
+      setDrawerOpen(false); // close on selection (overlay mode)
   }, [selectedTileCell]);  
 
   const widthStyle = useMemo(() => {

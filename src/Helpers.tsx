@@ -374,3 +374,56 @@ export function produceDeleteRegionInTilesheet(
     return { ...sheet, tiles: nextTiles };
   });
 }
+
+// ---- helpers ----
+const to5 = (v8: number) => Math.min(31, Math.max(0, Math.round((v8 / 255) * 31)));
+
+/** Pack #RRGGBB -> BGR555 (0b0BBBBBGGGGGRRRRR). Bit 15 is always 0. */
+function packBGR555(r8: number, g8: number, b8: number): number {
+  const r5 = to5(r8);
+  const g5 = to5(g8);
+  const b5 = to5(b8);
+  return ((b5 << 10) | (g5 << 5) | r5) & 0x7fff; // ensure bit 15 cleared
+}
+
+/**
+ * Convert Palette[] (8 x 16 colors) to a Blob of 16-bit BGR555 words.
+ * Layout: P0 C0..C15, P1 C0..C15, ... P7 C0..C15
+ */
+export function palettesToBGR555Blob(
+  palettes: Palette[],
+  {
+    palettesExpected = 8,
+    entriesPerPalette = 16,
+    littleEndian = true,
+    padWith = "#000000", // if a palette/entry is missing, pad with this
+  }: {
+    palettesExpected?: number;
+    entriesPerPalette?: number;
+    littleEndian?: boolean;
+    padWith?: string;
+  } = {}
+): {
+  blob: Blob;
+  failures: Array<{ palette: number; index: number; value: string }>;
+} {
+  const total = palettesExpected * entriesPerPalette;
+  const buf = new ArrayBuffer(total * 2);
+  const view = new DataView(buf);
+  const failures: Array<{ palette: number; index: number; value: string }> = [];
+
+  for (let p = 0; p < palettesExpected; p++) {
+    const pal = palettes[p] ?? [];
+    for (let i = 0; i < entriesPerPalette; i++) {
+      const colorStr = pal[i] ?? padWith;
+      const parsed = parseHexColor(colorStr);
+      if (!parsed) failures.push({ palette: p, index: i, value: colorStr });
+      const word = parsed ? packBGR555(parsed.r, parsed.g, parsed.b) : 0x0000;
+
+      const flatIndex = p * entriesPerPalette + i;
+      view.setUint16(flatIndex * 2, word, littleEndian);
+    }
+  }
+
+  return { blob: new Blob([buf], { type: "application/octet-stream" }), failures };
+}
