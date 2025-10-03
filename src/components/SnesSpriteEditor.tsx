@@ -11,7 +11,7 @@ import { v4 as uuid } from "uuid";
 import { SelectList } from "./SingleSelectList";
 import { MetaSpriteEditor } from "./MetaSpriteEditor";
 import { Tilesheet } from "./Tilesheet";
-import { extractRegionFromTilesheet, extractRegionTiles, extractSingleTile, extractSingleTileFromTilesheet, indexToRowCol, makeBlankTile, makeTiles, moveItem, palettesToBGR555Blob, parseHexColor, produceDeleteRegionInTilesheet, producePasteIntoTilesheet, tileIndex } from "@/Helpers";
+import { extractRegionFromTilesheet, extractRegionTiles, extractSingleTile, extractSingleTileFromTilesheet, indexToRowCol, makeBlankTile, makeTiles, moveItem, palettesToBGR555Blob, parseHexColor, produceDeleteRegionInTilesheet, producePasteIntoTilesheet, savePalettes, tileIndex } from "@/Helpers";
 import { SCALE, TILE_H, TILE_W } from "@/app/constants";
 import { ChevronButton } from "./ChevronButton";
 import ColorPicker555 from "./ColorPicker555";
@@ -658,10 +658,6 @@ export default function SNESpriteEditor() {
           const locationY = row + (y * SCALE * 8);
 
           const newEntry = createMetaspriteEntry(locationX, locationY);
-
-          const tileRow = (selectedTileRegion.row);
-          const tileCol = (selectedTileRegion.col);
-
           newEntry.tileIndex = tileIndex(selectedTileRegion.row + y, selectedTileRegion.col + x);
 
           newEntries.push(newEntry);
@@ -679,8 +675,6 @@ export default function SNESpriteEditor() {
           }
         })
       })
-
-      // need to support multiple select on the selected entries
     }
     else {
       const newEntry =  createMetaspriteEntry(col, row);
@@ -722,28 +716,11 @@ const onPick = useCallback((node: MenuNode) => {
         break;
 
       case "pal-save-full":
-        const { blob, failures } = palettesToBGR555Blob(palettes, /* littleEndian */ {littleEndian: true});
-
-        // Optional: report bad inputs
-        if (failures.length) {
-          console.warn("Unparseable color indexes:", failures);
-        }
-
-        // Example save (browser):
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "palette_bgr555.pal";
-        a.click();
-        URL.revokeObjectURL(url);        
+        savePalettes("default.pal", palettes, true);
         break;
       }
       setDrawerOpen(false); // close on selection (overlay mode)
   }, [selectedTileCell]);  
-
-  const widthStyle = useMemo(() => {
-      return `w-[${TILE_EDITOR_SCALE * 8}px] `
-  }, [TILE_EDITOR_SCALE])
 
   function selectTile(selected: Cell): void {
       setSelectedTileCell(selected);

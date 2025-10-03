@@ -427,3 +427,25 @@ export function palettesToBGR555Blob(
 
   return { blob: new Blob([buf], { type: "application/octet-stream" }), failures };
 }
+
+export function savePalettes(filename: string, palettes: Palette[], littleEndian: boolean): boolean {
+
+  const { blob, failures } = palettesToBGR555Blob(palettes, {littleEndian});
+
+  // Optional: report bad inputs
+  if (failures.length) {
+    return false;
+    console.warn("Unparseable color indexes:", failures);
+  }
+
+  // Example save (browser):
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename; //"palette_bgr555.pal";
+  a.click();
+  URL.revokeObjectURL(url);
+  
+  return true;
+
+}

@@ -454,7 +454,7 @@ useEffect(() => {
           />
           <hr className="my-1 border-slate-700" />
           <MenuItem
-            label="Delete Selected"
+            label="Clear Selected"
             kbd="Del"
             destructive
             disabled={!deleteEnabled}
