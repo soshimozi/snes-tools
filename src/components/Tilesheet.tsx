@@ -142,7 +142,7 @@ export function Tilesheet({
       }
     }
 
-    if (selected && !selectedRegion) {
+    if (selected) {
       const { col, row } = selected;
       const x = col * cellSize;
       const y = row * cellSize;

@@ -42,7 +42,7 @@ export function buildInitialDoc(): EditorDoc {
     currentColor: 1,
 
     selectedIds: [],
-    selectedTileCell: null,
+    selectedTileCell: {row: 0, col: 0},
     selectedTileRegion: undefined,
     highlightSelected: true,
     drawGrid: true,

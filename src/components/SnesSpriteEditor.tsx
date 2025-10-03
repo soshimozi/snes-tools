@@ -5,12 +5,11 @@ import { DraggableWindow } from "./DraggableWindow";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowDown, faArrowLeft, faArrowRight, faArrowsLeftRight, faArrowsUpDown,
-  faArrowUp, faEraser, faEyeDropper, faFillDrip, faPaintBrush, faRotateBackward, faRotateForward
+  faArrowUp, faRotateBackward, faRotateForward
 } from "@fortawesome/free-solid-svg-icons";
 
 import {
-  Cell, Metasprite, MetaSpriteEntry, Palette, Region, Sheet, Tile, Tool, TileRegionPayload
-} from "@/types/EditorTypes";
+  Cell, MetaSpriteEntry, Region, Tile} from "@/types/EditorTypes";
 
 import { v4 as uuid } from "uuid";
 import { SelectList } from "./SingleSelectList";
@@ -22,7 +21,6 @@ import {
   extractSingleTileFromTilesheet,
   indexToRowCol,
   makeBlankTile,
-  makeTiles,
   moveItem,
   parseHexColor,
   produceDeleteRegionInTilesheet,
@@ -380,6 +378,8 @@ export default function SNESpriteEditor() {
           ...d.metasprites[d.currentMetasprite].entries,
           ...newEntries
         ];
+
+        d.selectedIds = newEntries.map(e => e.id)
         return d;
       }
 
@@ -589,6 +589,7 @@ export default function SNESpriteEditor() {
                       entries={currentMetaSpriteEntries}
                       tilesheets={s.tilesheets}
                       drawGrid={s.drawGrid}
+                      highlightRegion={s.selectedTileRegion}
                       palettes={s.palettes}
                       highlightSelected={s.highlightSelected}
                       selected={selectedEntries[0]}
@@ -721,11 +722,11 @@ export default function SNESpriteEditor() {
                       />
                     </div>
                     <div className="flex justify-end">
-                      {hydrated && s.selectedTileCell &&(
+                      {/* {hydrated && s.selectedTileCell &&( */}
                         <span className="text-xs">
-                          Selected Tile: {tileIndex(s.selectedTileCell.row, s.selectedTileCell.col)}
+                          Selected Tile: {tileIndex(s.selectedTileCell?.row ?? 0, s.selectedTileCell?.col ?? 0)}
                         </span>
-                      )}
+                      {/* )} */}
                     </div>
                   </div>
                 </div>
