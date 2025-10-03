@@ -105,6 +105,7 @@ Use this if your app can be **fully static** (no SSR/API routes).
 - Sprite preview window with live animation.
 - Support for name tables and OAM editing.
 - Improved palette management UI.
+- Export/Import
 
 ---
 

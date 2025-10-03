@@ -720,6 +720,24 @@ const onPick = useCallback((node: MenuNode) => {
       setCurrentTile(tileIndex(selected?.row ?? 0, selected?.col ?? 0));
   }
 
+  function reorderMulti<T>(arr: T[], fromIndices: number[], insertBefore: number): T[] {
+    const order = [...fromIndices].sort((a, b) => a - b);
+    const picked = order.map(i => arr[i]);
+
+    // remove picked from the original
+    const remaining = arr.filter((_, idx) => !order.includes(idx));
+
+    // clamp insert position within remaining
+    const insertAt = Math.max(0, Math.min(insertBefore, remaining.length));
+
+    return [
+      ...remaining.slice(0, insertAt),
+      ...picked,
+      ...remaining.slice(insertAt),
+    ];
+  }
+
+
   return (
 
     <Fragment>
@@ -764,22 +782,8 @@ const onPick = useCallback((node: MenuNode) => {
           </button>
         </div>
         <DrawerMenu tree={menuTree} onPick={onPick} accordion />        
-        {/* <nav className="h-full flex flex-col bg-black">
-          <div className="px-4 py-3 border-b"><h2 className="text-base font-semibold">SNES Tools</h2></div>
-          <ul className="p-2 space-y-1 text-sm">
-            <li><button className="w-full text-left px-3 py-2 rounded cursor-pointer" onClick={() => { setDrawerOpen(false); setShowSpriteEditor(true);}}>Tile Editor</button></li>
-            <li><button className="w-full text-left px-3 py-2 rounded cursor-pointer" onClick={() => setDrawerOpen(false)}>Tilesheets</button></li>
-            <li><button className="w-full text-left px-3 py-2 rounded cursor-pointer" onClick={() => setDrawerOpen(false)} >Palette</button></li>
-            <li className="pt-2 border-t mt-2">
-              <button className="w-full text-left px-3 py-2 rounded cursor-pointer" onClick={() => setDrawerOpen(false)} >Settings</button>
-            </li>
-          </ul>
-          <div className="mt-auto p-3 border-t text-xs text-slate-500">v0.1 • 4bpp • 8×8</div>
-        </nav> */}
       </LeftDrawer>
 
-      {/* Main content area.
-          On lg+, add left padding to make room for the persistent drawer. */}
       <main className="mt-2">
         <div className="mx-auto w-full">
           <div className="flex flex-row gap-10 justify-center">
@@ -788,8 +792,7 @@ const onPick = useCallback((node: MenuNode) => {
 
               <div className="flex flex-row justify-between items-center">
                 <span className="text-sm font-bold">Metasprite Editor</span>
-                {/* <span className="text-xs">Current Metasprite: {currentMetasprite.toString().padStart(2, "0")}</span> */}
-                                      <div className="relative">
+                  <div className="relative">
                     <select 
                       value={currentMetasprite} 
                       onChange={((e) => setCurrentMetasprite(parseInt(e.target.value)))}
@@ -873,8 +876,17 @@ const onPick = useCallback((node: MenuNode) => {
 
                         }}
 
-                        onDropMulti={(fromIndices, toIndex) => {
-                          console.log('onDropMulti. fromIndices: ', fromIndices, ', toIndex: ', toIndex);
+                        onDropMulti={(fromIndices, insertBeforeIndex) => {
+                          setMetaSprites(prev =>
+                            prev.map((item, idx) => {
+                              if (idx !== currentMetasprite) return item;
+
+                              return {
+                                ...item,
+                                entries: reorderMulti(item.entries, fromIndices, insertBeforeIndex),
+                              };
+                            })
+                          );
                         }}
                         options={options}
 
@@ -1106,7 +1118,7 @@ const onPick = useCallback((node: MenuNode) => {
               ))}
             </div>
           </div>
-          <div className={`flex flex-col mt-1 text-xs text-slate-500 ${widthStyle}`}>Left-click to paint. Right-click to erase. Hold and drag to draw. Fill tool replaces contiguous region.</div>
+          <div className={`flex flex-col mt-1 text-xs text-slate-500 w-[380px]`}>Left-click to paint. Right-click to erase. Hold and drag to draw. Fill tool replaces contiguous region.</div>
           <div className="flex flex-col gap-1 select-none">
             <div>
               <div className="text-xs text-[#222222]">Shift pixels
