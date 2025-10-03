@@ -1,3 +1,5 @@
+"use client";
+
 // LeftDrawer.tsx
 import React, { useEffect, useRef } from "react";
 

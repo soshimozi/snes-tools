@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 
 type Option = {
