@@ -10,7 +10,6 @@ export function MetaSpriteEditor(
     entries: MetaSpriteEntry[];
     onClick: ({row, col} : {row: number, col: number}) => void;
     palettes: string[][];
-    //tiles: Tile[];
     tilesheets: Sheet[];
     selected?: MetaSpriteEntry;
     highlightSelected?: boolean;
@@ -22,10 +21,33 @@ export function MetaSpriteEditor(
   const cols = 16;
   const rows = 16;
   const cellSize = logicalTile * scale; // 16
-  const cssWidth = cols * cellSize; // 256
-  const cssHeight = rows * cellSize; // 256
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Normalize into [0,mod)
+  const norm = (n: number, mod: number) => ((n % mod) + mod) % mod;
+
+  /**
+   * For a rectangle at (x,y) with size (w,h), return all positions
+   * we need to draw at to achieve seamless wrap within (wrapW, wrapH).
+   * Positions are normalized to the 0..wrap range.
+   */
+  function wrappedPositions(x: number, y: number, w: number, h: number, wrapW: number, wrapH: number): Array<[number, number]> {
+    const xm = norm(x, wrapW);
+    const ym = norm(y, wrapH);
+
+    const pos: Array<[number, number]> = [[xm, ym]];
+
+    const crossesRight = xm + w > wrapW;
+    const crossesBottom = ym + h > wrapH;
+
+    if (crossesRight) pos.push([xm - wrapW, ym]);           // copy on left
+    if (crossesBottom) pos.push([xm, ym - wrapH]);          // copy on top
+    if (crossesRight && crossesBottom) pos.push([xm - wrapW, ym - wrapH]); // top-left corner
+
+    return pos;
+  }
+
   const getTilePixel = (tile: Tile, x: number, y: number, h: boolean, v: boolean, r: number) => {
     const newTile: number[][] = {...tile};
     
@@ -48,24 +70,6 @@ export function MetaSpriteEditor(
       }
     }
 
-/*
-  const rotateTileCW = () => transformTile((src) => {
-    const out = makeBlankTile();
-    // out[y][x] = src[7 - x][y]
-    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[y][x] = src[7 - x][y];
-    return out;
-  });
-
-  const rotateTileCCW = () => transformTile((src) => {
-    const out = makeBlankTile();
-    // out[y][x] = src[x][7 - y]
-    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[y][x] = src[x][7 - y];
-    return out;
-  });
-*/
-    //}
-    
-
     return newTile[ynew][xnew];
   }
 
@@ -84,25 +88,57 @@ export function MetaSpriteEditor(
     ctx.fillStyle = palettes[0][0];
     ctx.fillRect(0, 0, scale * 8 * 16 + 2, scale * 8 * 16 + 2);
 
-    // Pure render: draw tiles as-is in A/B/C/D positions, no flips or offsets
-    entries.forEach((e, i) => {
+    const WRAP_W = scale * 8 * cols; // e.g., 16 tiles * 8px * scale
+    const WRAP_H = scale * 8 * rows;
 
-      const dx = e.x; // * 8 * scale;
-      const dy = e.y; // * 8 * scale;
+    entries.forEach((e) => {
       const tile = tilesheets[e.tileSheetIndex].tiles[e.tileIndex];
 
-      for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-          const pix = getTilePixel(tile, x, y, e.h, e.v, e.r);
-          if( pix !== 0) {
-            const wx = dx + (x * scale);
-            const wy = dy + (y * scale);
-            ctx.fillStyle =  palettes[e.paletteIndex][pix] ?? "#000";
-            ctx.fillRect(wx, wy, scale, scale);
+      // tile top-left (already in world pixel coordinates, can be negative or > WRAP)
+      const dx = e.x;
+      const dy = e.y;
+
+      // one tile’s rendered size in pixels
+      const tileW = 8 * scale;
+      const tileH = 8 * scale;
+
+      // where should we draw this tile (including wrap copies)?
+      const positions = wrappedPositions(dx, dy, tileW, tileH, WRAP_W, WRAP_H);
+
+      for (const [bx, by] of positions) {
+        // draw the 8x8 tile pixels at this base position
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 8; x++) {
+            const pix = getTilePixel(tile, x, y, e.h, e.v, e.r);
+            if (pix !== 0) {
+              const wx = bx + x * scale;
+              const wy = by + y * scale;
+              ctx.fillStyle = palettes[e.paletteIndex][pix] ?? "#000";
+              ctx.fillRect(wx, wy, scale, scale);
+            }
           }
         }
       }
-    });
+    });    
+    // Pure render: draw tiles as-is in A/B/C/D positions, no flips or offsets
+    // entries.forEach((e, i) => {
+
+    //   const dx = e.x; // * 8 * scale;
+    //   const dy = e.y; // * 8 * scale;
+    //   const tile = tilesheets[e.tileSheetIndex].tiles[e.tileIndex];
+
+    //   for (let y = 0; y < 8; y++) {
+    //     for (let x = 0; x < 8; x++) {
+    //       const pix = getTilePixel(tile, x, y, e.h, e.v, e.r);
+    //       if( pix !== 0) {
+    //         const wx = dx + (x * scale);
+    //         const wy = dy + (y * scale);
+    //         ctx.fillStyle =  palettes[e.paletteIndex][pix] ?? "#000";
+    //         ctx.fillRect(wx, wy, scale, scale);
+    //       }
+    //     }
+    //   }
+    // });
     
     if(highlightSelected && selected) {
       const row = selected.y;
