@@ -1,15 +1,24 @@
 "use client";
 import { SCALE } from "@/app/constants";
 import { indexToRowCol } from "@/Helpers";
-import { Cell, Tile } from "@/types/EditorTypes";
+import { Cell, Region, Tile } from "@/types/EditorTypes";
 import React, { useRef, useCallback, useEffect, useState } from "react";
 
-/** Region is expressed in tile units (cols/rows) with a tile-aligned top-left */
-export type Region = {
-  col: number;   // left (tile)
-  row: number;   // top (tile)
-  cols: number;  // width  (in tiles)
-  rows: number;  // height (in tiles)
+
+// ---- NEW: Context-menu props ----
+type Contextable = {
+  /** If provided, enables copy item when it returns true for current selection/region */
+  canCopy?: (ctx: { cell: Cell | null; region?: Region }) => boolean;
+  /** If provided, enables paste item when it returns true for the click location/selection */
+  canPaste?: (ctx: { cell: Cell | null; region?: Region }) => boolean;
+  onCopy?: (ctx: { cell: Cell | null; region?: Region }) => void;
+  onPaste?: (ctx: { at: Cell; cell: Cell | null; region?: Region }) => void;
+  onDelete?: (ctx: { cell: Cell | null; region?: Region }) => void;
+  /**
+   * Optional: notify parent the user opened the context menu.
+   * Use this if you want to manage your own menu. If you return true, built-in menu won't show.
+   */
+  onContextMenuOpen?: (ctx: { mouse: { x: number; y: number }, at: Cell, cell: Cell | null, region?: Region }) => boolean | void;
 };
 
 export function Tilesheet({
@@ -18,10 +27,17 @@ export function Tilesheet({
   tiles,
   onSelected,
   selected,
-  /** NEW: controlled region */
+  /** controlled region */
   selectedRegion,
-  /** NEW: raised on drag end (tile-snapped) */
+  /** raised on drag end (tile-snapped) */
   onRegionSelected,
+  /** ---- NEW: context menu callbacks/caps ---- */
+  canCopy,
+  canPaste,
+  onCopy,
+  onPaste,
+  onDelete,
+  onContextMenuOpen,
 }: {
   onSelected: (selected: Cell) => void;
   selected: Cell | null;
@@ -30,21 +46,26 @@ export function Tilesheet({
   drawGridLines?: boolean;
   selectedRegion?: Region;
   onRegionSelected: (region?: Region) => void;
-}) {
+} & Contextable) {
   // ----- grid config -----
-  const logicalTile = 8;                // each SNES/8×8 tile
-  const scale = SCALE;                  // pixel scale factor for display
+  const logicalTile = 8;
+  const scale = SCALE;
   const cols = 16;
   const rows = 16;
-  const cellSize = logicalTile * scale; // CSS px per tile
-  const cssWidth = cols * cellSize;     // canvas CSS size
+  const cellSize = logicalTile * scale;
+  const cssWidth = cols * cellSize;
   const cssHeight = rows * cellSize;
 
   const tilesheetCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // ----- drag state (internal) -----
-  const dragStartRef = useRef<{ col: number; row: number } | null>(null);
-  const [draftRegion, setDraftRegion] = useState<Region | null>(null); // rubber-band while dragging
+  const dragStartRef = useRef<{ col: number; row: number; moved?: boolean } | null>(null);
+  const [draftRegion, setDraftRegion] = useState<Region | null>(null);
+
+  // ----- CONTEXT MENU state -----
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuXY, setMenuXY] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [menuAt, setMenuAt] = useState<Cell | null>(null);
 
   // Helpers
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
@@ -71,7 +92,6 @@ export function Tilesheet({
     if (!c) return;
 
     const dpr = window.devicePixelRatio || 1;
-    // Backing store size vs CSS size
     c.width = Math.round((cssWidth + 2) * dpr);
     c.height = Math.round((cssHeight + 2) * dpr);
     c.style.width = `${cssWidth + 2}px`;
@@ -80,15 +100,12 @@ export function Tilesheet({
     const ctx = c.getContext("2d");
     if (!ctx) return;
 
-    // Normalize drawing to CSS pixels
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Background
     ctx.clearRect(0, 0, cssWidth + 2, cssHeight + 2);
     ctx.fillStyle = palette[0] ?? "#ffffff";
-    ctx.fillRect(0, 0, cssWidth, cssHeight);
+    ctx.fillRect(0, 0, cssWidth + 2, cssHeight + 2);
 
-    // Draw tiles
     tiles.forEach((tile, index) => {
       const { row, col } = indexToRowCol(index);
       const dx = col * logicalTile * scale;
@@ -105,7 +122,6 @@ export function Tilesheet({
       }
     });
 
-    // Optional gridlines
     if (drawGridLines) {
       ctx.lineWidth = 1;
       ctx.strokeStyle = "rgba(0,0,0,0.15)";
@@ -125,7 +141,6 @@ export function Tilesheet({
       }
     }
 
-    // Highlight single selected cell
     if (selected && !selectedRegion) {
       const { col, row } = selected;
       const x = col * cellSize;
@@ -135,7 +150,6 @@ export function Tilesheet({
       ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
     }
 
-    // Draw a region (controlled prop)
     const paintRegion = (region: Region, styles?: { stroke?: string; fill?: string }) => {
       const x = region.col * cellSize;
       const y = region.row * cellSize;
@@ -152,15 +166,12 @@ export function Tilesheet({
       ctx.setLineDash([]);
     };
 
-    // Controlled selectedRegion (if any)
     if (selectedRegion) {
       paintRegion(selectedRegion, {
         fill: "rgba(0, 150, 255, 0.12)",
         stroke: "rgba(0, 150, 255, 0.9)",
       });
     }
-
-    // Draft region while dragging (rubber band)
     if (draftRegion) {
       paintRegion(draftRegion, {
         fill: "rgba(255, 255, 255, 0.18)",
@@ -183,207 +194,310 @@ export function Tilesheet({
     tiles,
   ]);
 
+  // 1) Track the last tile position under the pointer so paste has a natural target
+const lastPointerTileRef = useRef<Cell | null>(null);
+
+// Update it anywhere we know the pointer tile
+const updateLastPointer = (cell: Cell) => { lastPointerTileRef.current = cell; };
+
   useEffect(() => {
     drawTiles();
   }, [drawTiles]);
 
   // ----- pointer handlers -----
-const handlePointerDown: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
-  const c = tilesheetCanvasRef.current;
-  if (!c) return;
+  const handlePointerDown: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
+    // Left/middle button begins drag-select as usual; right-button is handled in onContextMenu
+    if (e.button !== 0 && e.button !== 1) return;
 
-  c.setPointerCapture?.(e.pointerId);
+    const c = tilesheetCanvasRef.current;
+    if (!c) return;
 
-  const rect = c.getBoundingClientRect();
-  const xCss = e.clientX - rect.left;
-  const yCss = e.clientY - rect.top;
+    c.setPointerCapture?.(e.pointerId);
 
-  const start = snapToTile(xCss, yCss);
-  dragStartRef.current = start;
+    const rect = c.getBoundingClientRect();
+    const xCss = e.clientX - rect.left;
+    const yCss = e.clientY - rect.top;
 
-  // Track whether the user dragged
-  (dragStartRef.current as any).moved = false;
+    const start = snapToTile(xCss, yCss);
 
-  // Still preserve single cell selection
-  onSelected({ row: start.row, col: start.col });
 
-  setDraftRegion(null); // no draft until actual move
-};
+    updateLastPointer(start);             // <-- add this
+    dragStartRef.current = { ...start, moved: false };
 
-const handlePointerMove: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
-  if (!dragStartRef.current) return;
-  const c = tilesheetCanvasRef.current;
-  if (!c) return;
-
-  const rect = c.getBoundingClientRect();
-  const xCss = e.clientX - rect.left;
-  const yCss = e.clientY - rect.top;
-
-  const cur = snapToTile(xCss, yCss);
-  const region = normRectToRegion(dragStartRef.current, cur);
-
-  // mark as moved
-  (dragStartRef.current as any).moved = true;
-
-  setDraftRegion(region);
-};
-
-const handlePointerUp: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
-  const start = dragStartRef.current;
-  dragStartRef.current = null;
-
-  const c = tilesheetCanvasRef.current;
-  if (!c) return;
-  c.releasePointerCapture?.(e.pointerId);
-
-  if (!start) {
+    onSelected({ row: start.row, col: start.col });
     setDraftRegion(null);
-    return;
-  }
+  };
 
-  const moved = (start as any).moved;
-  setDraftRegion(null);
+  const handlePointerMove: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
+    if (!dragStartRef.current) return;
+    const c = tilesheetCanvasRef.current;
+    if (!c) return;
 
-  if (!moved || (draftRegion?.cols === 1 && draftRegion?.rows === 1)) {
-    // No drag → clear region selection
-    onRegionSelected(undefined);
-    return;
-  }
+    const rect = c.getBoundingClientRect();
+    const xCss = e.clientX - rect.left;
+    const yCss = e.clientY - rect.top;
 
-  const rect = c.getBoundingClientRect();
-  const xCss = e.clientX - rect.left;
-  const yCss = e.clientY - rect.top;
-  const cur = snapToTile(xCss, yCss);
-  const region = normRectToRegion(start, cur);
+    const cur = snapToTile(xCss, yCss);
 
-  onRegionSelected(region);
-};
+    updateLastPointer(cur);               // <-- add this
+    const region = normRectToRegion(dragStartRef.current, cur);
 
+    dragStartRef.current.moved = true;
+    setDraftRegion(region);
+  };
+
+  const handlePointerUp: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
+    const start = dragStartRef.current;
+    dragStartRef.current = null;
+
+    const c = tilesheetCanvasRef.current;
+    if (!c) return;
+    c.releasePointerCapture?.(e.pointerId);
+
+    if (!start) {
+      setDraftRegion(null);
+      return;
+    }
+
+    const moved = start.moved;
+    setDraftRegion(null);
+
+    if (!moved || (draftRegion?.cols === 1 && draftRegion?.rows === 1)) {
+      onRegionSelected(undefined);
+      return;
+    }
+
+    const rect = c.getBoundingClientRect();
+    const xCss = e.clientX - rect.left;
+    const yCss = e.clientY - rect.top;
+    const cur = snapToTile(xCss, yCss);
+    const region = normRectToRegion(start, cur);
+
+    onRegionSelected(region);
+  };
 
   const handlePointerLeave: React.PointerEventHandler<HTMLCanvasElement> = () => {
-    // If the pointer leaves while dragging, cancel the draft but do not emit.
     setDraftRegion(null);
     dragStartRef.current = null;
   };
 
+  // ----- CONTEXT MENU: right-click -----
+  const handleContextMenu: React.MouseEventHandler<HTMLCanvasElement> = (e) => {
+    e.preventDefault();
+    const c = tilesheetCanvasRef.current;
+    if (!c) return;
+
+    const rect = c.getBoundingClientRect();
+    const xCss = e.clientX - rect.left;
+    const yCss = e.clientY - rect.top;
+
+    const at = snapToTile(xCss, yCss);
+
+    updateLastPointer(at);                // <-- add this    
+    setMenuAt(at);
+
+    // Let parent intercept/override if desired
+    const intercepted = onContextMenuOpen?.({
+      mouse: { x: e.clientX, y: e.clientY },
+      at,
+      cell: selected,
+      region: selectedRegion,
+    });
+
+    if (intercepted === true) return;
+
+    // Position menu in viewport coords so it isn’t clipped by canvas
+    setMenuXY({ x: e.clientX, y: e.clientY });
+    setMenuOpen(true);
+  };
+
+  // Close menu on outside click / Esc
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (ev: MouseEvent) => {
+      // if click happens on menu itself, ignore (we’ll handle inside)
+      const target = ev.target as HTMLElement | null;
+      if (target && target.closest?.("[data-tilesheet-menu]")) return;
+      setMenuOpen(false);
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setMenuOpen(false);
+      // Shortcuts
+      const metaOrCtrl = ev.metaKey || ev.ctrlKey;
+      if (metaOrCtrl && ev.key.toLowerCase() === "c") {
+        if (canCopy?.({ cell: selected, region: selectedRegion }) ?? !!onCopy) {
+          onCopy?.({ cell: selected, region: selectedRegion });
+          setMenuOpen(false);
+        }
+      } else if (metaOrCtrl && ev.key.toLowerCase() === "v") {
+        if (menuAt && (canPaste?.({ cell: selected, region: selectedRegion }) ?? !!onPaste)) {
+          onPaste?.({ at: menuAt, cell: selected, region: selectedRegion });
+          setMenuOpen(false);
+        }
+      } else if (ev.key === "Delete" || ev.key === "Backspace") {
+        if (onDelete) {
+          onDelete({ cell: selected, region: selectedRegion });
+          setMenuOpen(false);
+        }
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen, canCopy, canPaste, onCopy, onPaste, onDelete, selected, selectedRegion, menuAt]);
+
+// 2) Global hotkeys: document-level keydown, independent of menu state
+useEffect(() => {
+  const isTypingTarget = (el: EventTarget | null) => {
+    const n = el as HTMLElement | null;
+    if (!n) return false;
+    const tag = n.tagName?.toLowerCase();
+    return (
+      tag === "input" ||
+      tag === "textarea" ||
+      (n as HTMLElement).isContentEditable === true
+    );
+  };
+
+  const handler = (ev: KeyboardEvent) => {
+    // Avoid hijacking typing/copy in inputs etc.
+    if (isTypingTarget(ev.target)) return;
+
+    const metaOrCtrl = ev.metaKey || ev.ctrlKey;
+    const hasCopy = canCopy?.({ cell: selected, region: selectedRegion }) ?? !!onCopy;
+    const hasPaste = canPaste?.({ cell: selected, region: selectedRegion }) ?? !!onPaste;
+    const hasDelete = !!onDelete;
+
+    // Choose a destination for paste:
+    // 1) last pointer tile if available, else 2) current selected cell, else 3) top-left
+    const pasteAt: Cell = lastPointerTileRef.current
+      ?? (selected ?? { row: 0, col: 0 });
+
+    if (metaOrCtrl && ev.key.toLowerCase() === "c") {
+      if (hasCopy) {
+        ev.preventDefault();
+        onCopy?.({ cell: selected, region: selectedRegion });
+      }
+      return;
+    }
+
+    if (metaOrCtrl && ev.key.toLowerCase() === "v") {
+      if (hasPaste) {
+        ev.preventDefault();
+        onPaste?.({ at: pasteAt, cell: selected, region: selectedRegion });
+      }
+      return;
+    }
+
+    if (ev.key === "Delete" || ev.key === "Backspace") {
+      if (hasDelete) {
+        ev.preventDefault();
+        onDelete?.({ cell: selected, region: selectedRegion });
+      }
+    }
+  };
+
+  document.addEventListener("keydown", handler);
+  return () => document.removeEventListener("keydown", handler);
+}, [canCopy, canPaste, onCopy, onPaste, onDelete, selected, selectedRegion]);  
+
+  const copyEnabled = (canCopy?.({ cell: selected, region: selectedRegion }) ?? !!onCopy);
+  const pasteEnabled = (canPaste?.({ cell: selected, region: selectedRegion }) ?? !!onPaste);
+  const deleteEnabled = !!onDelete;
+
   return (
-    <canvas
-      ref={tilesheetCanvasRef}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerLeave}
-      className="rounded-[3px]"
-      style={{ imageRendering: "pixelated", cursor: "crosshair" }}
-    />
+    <>
+      <canvas
+        ref={tilesheetCanvasRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerLeave}
+        onContextMenu={handleContextMenu}
+        style={{ border: "none", imageRendering: "pixelated", cursor: "pointer", borderRadius: "4px" }}
+      />
+
+      {/* ---- CONTEXT MENU POPUP ---- */}
+      {menuOpen && (
+        <div
+          data-tilesheet-menu
+          className="fixed z-50 min-w-40 rounded-lg border border-slate-700 bg-slate-900/95 shadow-xl backdrop-blur px-1 py-1 text-sm select-none"
+          style={{
+            top: menuXY.y,
+            left: menuXY.x,
+            transform: "translate(2px, 2px)",
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <MenuItem
+            label="Copy Selected"
+            kbd={navigator.platform.includes("Mac") ? "⌘C" : "Ctrl+C"}
+            disabled={!copyEnabled}
+            onClick={() => {
+              if (!copyEnabled) return;
+              onCopy?.({ cell: selected, region: selectedRegion });
+              setMenuOpen(false);
+            }}
+          />
+          <MenuItem
+            label="Paste At Cursor"
+            kbd={navigator.platform.includes("Mac") ? "⌘V" : "Ctrl+V"}
+            disabled={!pasteEnabled || !menuAt}
+            onClick={() => {
+              if (!pasteEnabled || !menuAt) return;
+              onPaste?.({ at: menuAt, cell: selected, region: selectedRegion });
+              setMenuOpen(false);
+            }}
+          />
+          <hr className="my-1 border-slate-700" />
+          <MenuItem
+            label="Delete Selected"
+            kbd="Del"
+            destructive
+            disabled={!deleteEnabled}
+            onClick={() => {
+              if (!deleteEnabled) return;
+              onDelete?.({ cell: selected, region: selectedRegion });
+              setMenuOpen(false);
+            }}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
-// "use client";
-// import { SCALE } from "@/app/constants";
-// import { indexToRowCol } from "@/helpers";
-// import { Cell, Tile } from "@/types/editorTypes";
-// import React, { useRef, useCallback, useEffect } from "react";
-
-// export function Tilesheet(
-//   {
-//     palette = ["#dddddd"], drawGridLines = false, tiles, onSelected, selected
-//   }: {
-//     onSelected: (selected: Cell) => void;
-//     selected: Cell | null;
-//     tiles: Tile[];
-//     palette?: string[];
-//     drawGridLines?: boolean;
-//   }) {
-
-//   // ----- grid config -----
-//   const logicalTile = 8; // your underlying tile size
-//   const scale = SCALE; // scale factor (so each cell = 16px)
-//   const cols = 16;
-//   const rows = 16;
-//   const cellSize = logicalTile * scale; // 16
-//   const cssWidth = (cols * cellSize) + 4; // 256
-//   const cssHeight = (rows * cellSize) + 4; // 256
-
-//   const tilesheetCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
-//   const drawTiles = useCallback(() => {
-//     const c = tilesheetCanvasRef.current;
-//     if (!c) return;
-
-//     const dpr = window.devicePixelRatio || 1;
-//     // Backing store size (actual pixels) vs CSS size (layout pixels)
-//     c.width = Math.round(cssWidth * dpr);
-//     c.height = Math.round(cssHeight * dpr);
-//     c.style.width = `${cssWidth + 4}px`;
-//     c.style.height = `${cssHeight + 4}px`;
-
-//     const ctx = c.getContext("2d");
-//     if (!ctx) return;
-
-//     // Normalize drawing to CSS pixel units
-//     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-//     // Background
-//     ctx.clearRect(0, 0, cssWidth, cssHeight);
-//     ctx.fillStyle = palette[0] ?? "#ffffff";
-//     ctx.fillRect(0, 0, cssWidth, cssHeight);
-
-//     tiles.forEach((tile, index) => {
-
-//       const { row, col } = indexToRowCol(index);
-
-//       const dx = col * 8 * scale;
-//       const dy = row * 8 * scale;
-
-//       for (let y = 0; y < 8; y++) {
-//         for (let x = 0; x < 8; x++) {
-//           const pix = tile[y][x];
-//           const wx = dx + (x * scale);
-//           const wy = dy + (y * scale);
-//           ctx.fillStyle = palette[pix] ?? "#000";
-//           ctx.fillRect(wx, wy, scale, scale);
-//         }
-//       }
-//     });
-
-//     // Highlight selected cell
-//     if (selected) {
-//       const { col, row } = selected;
-//       const x = col * cellSize;
-//       const y = row * cellSize;
-
-//       // Border highlight
-//       ctx.lineWidth = 2;
-//       ctx.strokeStyle = "rgba(255, 255, 255, 1)";
-//       ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
-//     }
-//   }, [palette, selected, cssWidth, cssHeight, cellSize, cols, rows, drawGridLines, tiles]);
-
-//   useEffect(() => {
-//     drawTiles();
-//   }, [drawTiles]);
-
-//   const handlePointerDown: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
-//     const c = tilesheetCanvasRef.current;
-//     if (!c) return;
-
-//     const rect = c.getBoundingClientRect(); // CSS pixels
-//     const xCss = e.clientX - rect.left;
-//     const yCss = e.clientY - rect.top;
-
-//     const col = Math.floor(xCss / cellSize);
-//     const row = Math.floor(yCss / cellSize);
-
-//     if (col >= 0 && col < cols && row >= 0 && row < rows) {
-//       onSelected({ row, col });
-//     }
-//   };
-
-//   return (
-//     <canvas
-//       ref={tilesheetCanvasRef}
-//       onPointerDown={handlePointerDown}
-//       style={{ imageRendering: "pixelated", cursor: "pointer", borderRadius: "3px" }} />
-//   );
-// }
+// Small internal item renderer for the popup
+function MenuItem({
+  label,
+  kbd,
+  onClick,
+  disabled,
+  destructive,
+}: {
+  label: string;
+  kbd?: string;
+  onClick: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={[
+        "flex w-full items-center justify-between gap-4 rounded-md px-3 py-2 text-left",
+        disabled
+          ? "opacity-40 cursor-not-allowed"
+          : "hover:bg-slate-800/80 active:bg-slate-800"
+      ].join(" ")}
+    >
+      <span className={destructive ? "text-rose-300" : ""}>{label}</span>
+      {kbd ? <span className="text-xs text-slate-400">{kbd}</span> : null}
+    </button>
+  );
+}

@@ -3,24 +3,23 @@
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { DraggableWindow } from "./DraggableWindow";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faArrowDown, faArrowDownUpAcrossLine, faArrowLeft, faArrowRight, faArrowsLeftRight, faArrowsUpDown, faArrowUp, faChevronUp, faEraser, faEyeDropper, faFillDrip, faPaintBrush, faRotateBackward, faRotateForward, IconDefinition } from "@fortawesome/free-solid-svg-icons";
-import { Cell, HistoryEntry, Metasprite, MetaSpriteEntry, Palette, Sheet, Tile, Tool } from "@/types/EditorTypes";
+import { faArrowDown, faArrowLeft, faArrowRight, faArrowsLeftRight, faArrowsUpDown, 
+          faArrowUp, faEraser, faEyeDropper, faFillDrip, faPaintBrush, faRotateBackward, faRotateForward } from "@fortawesome/free-solid-svg-icons";
+
+import { Cell, Metasprite, MetaSpriteEntry, Palette, Region, Sheet, Tile, Tool, TileRegionPayload } from "@/types/EditorTypes";
 import { v4 as uuid } from "uuid";
-import { MultiSelect } from "./MultiSelect";
 import { SelectList } from "./SingleSelectList";
 import { MetaSpriteEditor } from "./MetaSpriteEditor";
-import { Region, Tilesheet } from "./Tilesheet";
-import { decodeSNES4bppTile, download, encodeSNES4bppTile, exportCGRAMBGR15, makeBlankTile, makeTiles, moveItem, parseHexColor, renderTilesheetToCanvas, renderTileToCanvas, tileIndex } from "@/Helpers";
+import { Tilesheet } from "./Tilesheet";
+import { extractRegionFromTilesheet, extractRegionTiles, extractSingleTile, extractSingleTileFromTilesheet, indexToRowCol, makeBlankTile, makeTiles, moveItem, parseHexColor, produceDeleteRegionInTilesheet, producePasteIntoTilesheet, tileIndex } from "@/Helpers";
 import { SCALE, TILE_H, TILE_W } from "@/app/constants";
 import { ChevronButton } from "./ChevronButton";
 import ColorPicker555 from "./ColorPicker555";
 import StyledButton from "./StyledButton";
-import SytledCheckbox from "./StyledCheckbox";
 import StyledCheckbox from "./StyledCheckbox";
 import { LeftDrawer } from "./LeftDrawer";
 import { menuTree, type MenuNode } from "./Menu";
 import { DrawerMenu } from "./DrawerMenu";
-import { RegexIcon } from "lucide-react";
 import { Palettes } from "@/Palette";
 
 
@@ -63,6 +62,7 @@ export default function SNESpriteEditor() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [drawGrid, setDrawGrid] = useState(true);
   const [selectedTileRegion, setSelectedTileRegion] = useState<Region | undefined>();
+  const [clipboard, setClipboard] = useState<TileRegionPayload | null>(null);
 
 
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -294,11 +294,11 @@ export default function SNESpriteEditor() {
   const stopStroke = () => setIsMouseDown(false);
 
   // Context menu disable for right-click erase
-  // useEffect(() => {
-  //   const prevent = (e: MouseEvent) => e.preventDefault();
-  //   document.addEventListener("contextmenu", prevent);
-  //   return () => document.removeEventListener("contextmenu", prevent);
-  // }, []);
+  useEffect(() => {
+    const prevent = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener("contextmenu", prevent);
+    return () => document.removeEventListener("contextmenu", prevent);
+  }, []);
 
 
   const transformTile = useCallback((fn: (src: Tile) => Tile) => {
@@ -471,21 +471,6 @@ export default function SNESpriteEditor() {
         return changed ? { ...item, entries: updated } : item;
       })
     );    
-    // if (!selectedId) return;
-
-    // setMetaSprites(prev => {
-
-    //   return prev.map((item, idx) => {
-    //     if (idx !== currentMetasprite) return item;
-
-    //     const updated = item.entries.map(entry => entry.id === selectedId ? { ...entry, r: (entry.r - 1) % 4} : entry);
-
-    //     return {
-    //       ...item,
-    //       entries: updated
-    //     }
-    //   })
-    // })                          
 
   }
 
@@ -662,8 +647,6 @@ export default function SNESpriteEditor() {
   const updateMetasprite = ({row, col} : {row: number, col: number}) => {
     if(!selectedTileCell && !selectedTileRegion) return;
 
-    console.log('row: ', row, ', col: ', col)
-
     if(selectedTileRegion) 
     {
       const newEntries:MetaSpriteEntry[] = [];
@@ -678,9 +661,6 @@ export default function SNESpriteEditor() {
 
           const tileRow = (selectedTileRegion.row);
           const tileCol = (selectedTileRegion.col);
-
-          console.log('tileRow: ', tileRow);
-          console.log('tileCol: ', tileCol);
 
           newEntry.tileIndex = tileIndex(selectedTileRegion.row + y, selectedTileRegion.col + x);
 
@@ -772,6 +752,81 @@ const onPick = useCallback((node: MenuNode) => {
     ];
   }
 
+  function buildRowColToIndex(
+    totalTiles: number,
+    indexToRowCol: (i: number) => { row: number; col: number }
+  ) {
+    const map = new Map<string, number>();
+    for (let i = 0; i < totalTiles; i++) {
+      const { row, col } = indexToRowCol(i);
+      map.set(`${row},${col}`, i);
+    }
+    return (row: number, col: number) => map.get(`${row},${col}`);
+  }
+
+  // Deep copy a single tile
+  const deepCopyTile = (t: Tile): Tile => t.map(r => r.slice());
+
+  /** Paste rectangular tile block with clipping to sheet bounds. */
+  function pasteTiles(
+    sheet: Tile[],                         // full tilesheet
+    payload: TileRegionPayload,            // { tiles, cols, rows }
+    at: { row: number; col: number },      // destination top-left (tile coords)
+    gridCols = 16,
+    gridRows = 16
+  ): Tile[] {
+    const rowColToIndex = buildRowColToIndex(sheet.length, indexToRowCol);
+    const next = sheet.map(deepCopyTile);
+
+    for (let r = 0; r < payload.rows; r++) {
+      for (let c = 0; c < payload.cols; c++) {
+        const destRow = at.row + r;
+        const destCol = at.col + c;
+        if (destRow < 0 || destCol < 0 || destRow >= gridRows || destCol >= gridCols) continue;
+
+        const destIdx = rowColToIndex(destRow, destCol);
+        if (destIdx == null) continue;
+
+        const srcIdx = r * payload.cols + c;
+        next[destIdx] = deepCopyTile(payload.tiles[srcIdx]);
+      }
+    }
+    return next;
+  }  
+
+  const handleCopy = (region?: Region, cell?: Cell) => {
+    setTilesheets(prev => {
+      const sheet = prev[currentTilesheet];
+      if (!sheet) return prev;
+
+      const payload = region
+        ? extractRegionFromTilesheet(sheet.tiles, region, indexToRowCol)
+        : (cell ? extractSingleTileFromTilesheet(sheet.tiles, cell, indexToRowCol) : null);
+
+      if (!payload) return prev;
+      // store clipboard (outside setTilesheets is also fine)
+      setClipboard(payload);
+      return prev;
+    });
+  };
+
+  // PASTE into CURRENT tilesheet at a tile location
+  const handlePaste = (at: Cell) => {
+    if (!clipboard) return;
+    setTilesheets(prev =>
+      producePasteIntoTilesheet(prev, currentTilesheet, clipboard, at, indexToRowCol)
+    );
+  };
+
+  // DELETE region in CURRENT tilesheet
+  const handleDelete = (region?: Region, cell?: Cell) => {
+    setTilesheets(prev => {
+      const targetRegion =
+        region ?? (cell ? { row: cell.row, col: cell.col, rows: 1, cols: 1 } : undefined);
+      if (!targetRegion) return prev;
+      return produceDeleteRegionInTilesheet(prev, currentTilesheet, targetRegion, indexToRowCol);
+    });
+  };  
 
   return (
 
@@ -987,7 +1042,18 @@ const onPick = useCallback((node: MenuNode) => {
                                 selectedRegion={selectedTileRegion} 
                                 onRegionSelected={function (region?: Region): void {
                                     setSelectedTileRegion(region);
-                                }} />
+                                }} 
+                                onCopy={({ cell, region }) => {
+
+                                  handleCopy(region, cell);
+                                }}                                
+                                onPaste={({ at }) => handlePaste(at)}
+                                onDelete={({cell, region}) => {
+                                  handleDelete(region, cell ?? undefined);
+                                }}
+                                canCopy={({ cell, region }) => !!(region || cell)}
+                                canPaste={() => clipboard !== null}                                
+                                />
                   </div>
                   <div className="flex justify-end">
                     {selectedTileCell && <span className="text-xs">Selected Tile: {tileIndex(selectedTileCell?.row ?? 0, selectedTileCell?.col ?? 0)}</span>}
