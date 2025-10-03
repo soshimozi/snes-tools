@@ -244,7 +244,7 @@ const handlePointerUp: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
   const moved = (start as any).moved;
   setDraftRegion(null);
 
-  if (!moved) {
+  if (!moved || (draftRegion?.cols === 1 && draftRegion?.rows === 1)) {
     // No drag → clear region selection
     onRegionSelected(undefined);
     return;
