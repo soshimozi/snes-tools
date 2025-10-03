@@ -21,107 +21,12 @@ import { LeftDrawer } from "./LeftDrawer";
 import { menuTree, type MenuNode } from "./Menu";
 import { DrawerMenu } from "./DrawerMenu";
 import { RegexIcon } from "lucide-react";
-
-// Types
-// export type Palette = string[]; // 16 hex colors: "#RRGGBB"
-
-// Palettes.ts
-export class Palettes {
-  static readonly pal_r = new Uint8Array([
-    80, 0, 0x40, 0x80, 0xc0, 0xf8, 0x50, 0xa0, 0xf8, 0, 0, 0, 0, 0, 0, 0xc0,
-    80, 0, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf8,
-    80, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-    80, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xf8,
-    80, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xf8,
-    80, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-    80, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-    80, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xf8
-  ]);
-
-  static readonly pal_g = new Uint8Array([
-    248, 0, 0x40, 0x80, 0xc0, 0xf8, 0, 0, 0, 0x50, 0xa0, 0xf8, 0, 0, 0, 0xc0,
-    248, 0, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf8,
-    248, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xf8,
-    248, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-    248, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xf8,
-    248, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-    248, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xf8,
-    248, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8
-  ]);
-
-  static readonly pal_b = new Uint8Array([
-    80, 0, 0x40, 0x80, 0xc0, 0xf8, 0, 0, 0, 0, 0, 0, 0x50, 0xa0, 0xf8, 0,
-    80, 0, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf8,
-    80, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xf8,
-    80, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xf8,
-    80, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-    80, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xf8,
-    80, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-    80, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8
-  ]);
-
-  /** Get RGB values as tuple [r, g, b] */
-  static getRGB(index: number): [number, number, number] {
-    return [
-      Palettes.pal_r[index],
-      Palettes.pal_g[index],
-      Palettes.pal_b[index],
-    ];
-  }
-
-  static getBGR(index: number): [number, number, number] {
-    return [
-      Palettes.pal_b[index],
-      Palettes.pal_g[index],
-      Palettes.pal_r[index],
-    ]
-  }
-
-  /** Get RGB as hex string like "#ffeeff" */
-  static getRGBString(paletteIndex: number, colorIndex: number): string {
-    const [r, g, b] = Palettes.getRGB(paletteIndex * 16 + colorIndex);
-    const toHex = (n: number) => n.toString(16).padStart(2, "0");
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
-
-  static getPalette(paletteIndex: number): string[] {
-    let rgb = [];
-
-    for (let i = 0; i < 16; i++) {
-      rgb.push(Palettes.getRGBString(paletteIndex, i))
-    }
-
-    return rgb;
-  }
+import { Palettes } from "@/Palette";
 
 
-  static getBGRPalette(paletteIndex: number): string[] {
-
-    let bgr = [];
-
-    const pal = Palettes.getPalette(0);
-
-    for (let i = 0; i < 16; i++) {
-      const color = Palettes.getBGR(paletteIndex * 16 + i)
-
-      const bgrHexColor = (((color[0] & 0xf8) >> 3) << 10) | (((color[1] & 0xf8) >> 3) << 5) | (((color[2] & 0xf8) >> 3) & 0x1f);
-      bgr.push(bgrHexColor.toString(16).padStart(4, '0'))
-    }
-
-    return bgr;
-
-  }
-}
-
-
-
-
-function keyOfMetaSpriteEntry(e: MetaSpriteEntry) {
-  return e.id;
-}
+const TILE_EDITOR_SCALE = 48;
 
 export default function SNESpriteEditor() {
-  //const [tiles, setTiles] = useState<number[][][]>(makeTiles());
   const [tilesheets, setTilesheets] = useState<Sheet[]>([
     {
       tiles: makeTiles()
@@ -354,6 +259,10 @@ export default function SNESpriteEditor() {
   }, [currentTile, currentTilesheet])
 
 
+  function keyOfMetaSpriteEntry(e: MetaSpriteEntry) {
+    return e.id;
+  }
+
   // Mouse interactions
   const onCellDown = (x: number, y: number) => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -385,11 +294,11 @@ export default function SNESpriteEditor() {
   const stopStroke = () => setIsMouseDown(false);
 
   // Context menu disable for right-click erase
-  useEffect(() => {
-    const prevent = (e: MouseEvent) => e.preventDefault();
-    document.addEventListener("contextmenu", prevent);
-    return () => document.removeEventListener("contextmenu", prevent);
-  }, []);
+  // useEffect(() => {
+  //   const prevent = (e: MouseEvent) => e.preventDefault();
+  //   document.addEventListener("contextmenu", prevent);
+  //   return () => document.removeEventListener("contextmenu", prevent);
+  // }, []);
 
 
   const transformTile = useCallback((fn: (src: Tile) => Tile) => {
@@ -801,6 +710,10 @@ const onPick = useCallback((node: MenuNode) => {
     setDrawerOpen(false); // close on selection (overlay mode)
   }, [selectedTileCell]);  
 
+  const widthStyle = useMemo(() => {
+      return `w-[${TILE_EDITOR_SCALE * 8}px] `
+  }, [TILE_EDITOR_SCALE])
+
   function selectTile(selected: Cell): void {
       setSelectedTileCell(selected);
       setShowSpriteEditor(true);
@@ -1169,7 +1082,7 @@ const onPick = useCallback((node: MenuNode) => {
           <div className="flex flex-row gap-2">
             <div className="select-none w-fit" onMouseUp={stopStroke} onMouseLeave={stopStroke}>
               <div className="inline-grid"
-                style={{ gridTemplateColumns: `repeat(${TILE_W}, 32px)`, gridTemplateRows: `repeat(${TILE_H}, 32px)` }}>
+                style={{ gridTemplateColumns: `repeat(${TILE_W}, ${TILE_EDITOR_SCALE}px)`, gridTemplateRows: `repeat(${TILE_H}, ${TILE_EDITOR_SCALE}px)` }}>
                 {tile.map((row, y) =>
                   row.map((pix, x) => (
                     <div
@@ -1185,15 +1098,15 @@ const onPick = useCallback((node: MenuNode) => {
               </div>
             </div>
 
-            <div className="flex flex-col justify-between h-[180px]">
+            <div className="flex flex-col justify-between h-[256px]">
               {([getToolByName("brush"), getToolByName("fill"), getToolByName("picker"), getToolByName("eraser")] as Tool[]).map((t, i) => (
-                <button key={i} onClick={() => setTool(t)} className={`p-1 rounded-md text-sm ${tool.type === t.type ? "bg-blue-600 text-white" : "bg-transparent hover:bg-slate-100"}`}>
+                <button key={i} onClick={() => setTool(t)} className={`p-1 rounded-md w-[48px] h-[48px] text-lg ${tool.type === t.type ? "bg-blue-600 text-white" : "bg-transparent hover:bg-slate-100"}`}>
                   <FontAwesomeIcon icon={t.icon} />
                 </button>
               ))}
             </div>
           </div>
-          <div className="flex w-70 flex-col mt-1 text-xs text-slate-500">Left-click to paint. Right-click to erase. Hold and drag to draw. Fill tool replaces contiguous region.</div>
+          <div className={`flex flex-col mt-1 text-xs text-slate-500 ${widthStyle}`}>Left-click to paint. Right-click to erase. Hold and drag to draw. Fill tool replaces contiguous region.</div>
           <div className="flex flex-col gap-1 select-none">
             <div>
               <div className="text-xs text-[#222222]">Shift pixels
