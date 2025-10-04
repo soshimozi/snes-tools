@@ -47,4 +47,6 @@ export type EditorDoc = {
 
   // Clipboard (tile region)
   clipboard: TileRegionPayload | null;
+
+  showIndex0Transparency: boolean; // NEW
 };

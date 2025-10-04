@@ -449,3 +449,37 @@ export function savePalettes(filename: string, palettes: Palette[], littleEndian
   return true;
 
 }
+
+
+// Cached per (scale, light, dark) triple
+const _checkerCache = new Map<string, CanvasPattern>();
+
+export function getCheckerPattern(
+  ctx: CanvasRenderingContext2D,
+  scale: number,
+  light = "#eeeeee",
+  dark = "#bbbbbb"
+): CanvasPattern {
+  const key = `${scale}|${light}|${dark}`;
+  const found = _checkerCache.get(key);
+  if (found) return found;
+
+  // tile size = 2 * scale so each square is exactly `scale` px
+  const off = document.createElement("canvas");
+  off.width = scale * 2;
+  off.height = scale * 2;
+  const octx = off.getContext("2d")!;
+
+  // draw 4 squares
+  octx.fillStyle = light;
+  octx.fillRect(0, 0, scale, scale);
+  octx.fillRect(scale, scale, scale, scale);
+
+  octx.fillStyle = dark;
+  octx.fillRect(scale, 0, scale, scale);
+  octx.fillRect(0, scale, scale, scale);
+
+  const pat = ctx.createPattern(off, "repeat")!;
+  _checkerCache.set(key, pat);
+  return pat;
+}

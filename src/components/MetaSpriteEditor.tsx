@@ -1,13 +1,15 @@
 "use client";
 
 import { SCALE } from "@/app/constants";
+import { getCheckerPattern } from "@/Helpers";
 import { MetaSpriteEntry, Region, SelectedTiles, Sheet, Tile } from "@/types/EditorTypes";
 import React, { useRef, useCallback, useEffect, useState } from "react";
 
 export function MetaSpriteEditor(
   {
     entries, onClick, palettes, tilesheets, selected,
-    highlightSelected = false, drawGrid = false, selectedRegion, selectedTiles
+    highlightSelected = false, drawGrid = false, transparentIndex0 = false,
+    selectedRegion, selectedTiles
   }: {
     entries: MetaSpriteEntry[];
     onClick: ({row, col} : {row: number, col: number}) => void;
@@ -18,6 +20,7 @@ export function MetaSpriteEditor(
     highlightSelected?: boolean;
     drawGrid?: boolean;
     selectedTiles?: SelectedTiles;  // <-- NEW
+    transparentIndex0?:boolean;
   }) {
 
   const logicalTile = 8;
@@ -40,11 +43,29 @@ export function MetaSpriteEditor(
     dy: number,
     scale: number,
     palette: string[],
+    transparent0: boolean,
   ) => {
+
+    // Precompute pattern once per tile draw
+    //const pattern = transparent0 ? getCheckerPattern(ctx, scale) : null;    
+
     for (let y = 0; y < 8; y++) {
       for (let x = 0; x < 8; x++) {
         const pix = tile[y][x];
-        if (pix !== 0) {
+        const rx = dx + x * scale;
+        const ry = dy + y * scale;
+        
+        if( pix == 0) {
+          if(transparent0) {
+            // ctx.fillStyle = pattern!;
+            // ctx.fillRect(rx, ry, scale, scale);
+            continue;
+          } else {
+            ctx.fillStyle = palette[0] ?? "#000";
+            ctx.fillRect(rx, ry, scale, scale);
+          
+          }
+        } else {
           ctx.fillStyle = palette[pix] ?? "#000";
           ctx.fillRect(dx + x * scale, dy + y * scale, scale, scale);
         }
@@ -134,8 +155,13 @@ export function MetaSpriteEditor(
     if (!ctx) return;
 
     // background
-    ctx.clearRect(0, 0, c.width, c.height);
-    ctx.fillStyle = palettes[0][0];
+    if (transparentIndex0) {
+      // implied transparency behind *everything*
+      ctx.fillStyle = getCheckerPattern(ctx, 32);
+    } else {
+      // your existing “color 0” background (same for all palettes)
+      ctx.fillStyle = palettes[0][0] ?? "#000";
+    }
     ctx.fillRect(0, 0, c.width, c.height);
 
     const WRAP_W = scale * 8 * cols;
@@ -154,9 +180,19 @@ export function MetaSpriteEditor(
         for (let y = 0; y < 8; y++) {
           for (let x = 0; x < 8; x++) {
             const pix = getTilePixel(tile, x, y, e.h, e.v, e.r);
-            if (pix !== 0) {
-              const wx = bx + x * scale;
-              const wy = by + y * scale;
+            const wx = bx + x * scale;
+            const wy = by + y * scale;
+
+            if (pix === 0) {
+              if (transparentIndex0) {
+                // ctx.fillStyle = getCheckerPattern(ctx, scale);
+                // ctx.fillRect(wx, wy, scale, scale);
+                continue;
+              } else {
+                ctx.fillStyle = palettes[e.paletteIndex][0] ?? "#000";
+                ctx.fillRect(wx, wy, scale, scale);
+              }
+            } else {
               ctx.fillStyle = palettes[e.paletteIndex][pix] ?? "#000";
               ctx.fillRect(wx, wy, scale, scale);
             }
@@ -171,10 +207,12 @@ export function MetaSpriteEditor(
       const tileH = 8 * scale;
       const positions = wrappedPositions(selected.x, selected.y, tileW, tileH, WRAP_W, WRAP_H);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = "#fff";
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = "rgba(0, 150, 255, 1)";
       for (const [bx, by] of positions) {
         ctx.strokeRect(bx, by, tileW, tileH);
       }
+      ctx.setLineDash([]);
     }
 
     // grid (base layer)
@@ -185,18 +223,22 @@ export function MetaSpriteEditor(
       const endx = scale * 8 * 16;
       const endy = scale * 8 * 16;
       for (let x = 1; x <= 8; x++) {
+
         ctx.beginPath();
         ctx.moveTo(scale * 16 * x + .5, 0);
         ctx.lineTo(scale * 16 * x + .5, endy);
         ctx.stroke();
       }
       for (let y = 1; y <= 8; y++) {
+       
         ctx.beginPath();
         ctx.moveTo(0, scale * 16 * y + .5);
         ctx.lineTo(endx, scale * 16 * y + .5);
         ctx.stroke();
       }
-      ctx.strokeStyle = "#fff";
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "yellow";
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(scale * 16 * 4 + .5, 0);
       ctx.lineTo(scale * 16 * 4 + .5, endy);
@@ -205,12 +247,11 @@ export function MetaSpriteEditor(
       ctx.moveTo(0, scale * 16 * 4 + .5);
       ctx.lineTo(endx, scale * 16 * 4 + .5);
       ctx.stroke();
-      ctx.setLineDash([]);
     }
 
     // ensure overlay matches size after base redraw
     syncOverlaySize();
-  }, [cols, rows, scale, palettes, entries, tilesheets, selected, highlightSelected, drawGrid, syncOverlaySize]);
+  }, [cols, rows, scale, palettes, entries, tilesheets, selected, highlightSelected, drawGrid, syncOverlaySize, ]);
 
   useEffect(() => { drawMeta(); }, [drawMeta]);
 
@@ -249,7 +290,7 @@ const drawOverlaySelection = useCallback(
             // clip to canvas bounds (optional but avoids overdraw)
             if (dx + cellSize < 0 || dy + cellSize < 0 || dx >= overlay.width || dy >= overlay.height) continue;
 
-            drawOneTile(octx, tile, dx, dy, scale, palette);
+            drawOneTile(octx, tile, dx, dy, scale, palette, transparentIndex0);
           }
         }
 
@@ -259,11 +300,11 @@ const drawOverlaySelection = useCallback(
         const w = (selectedTiles.tileIndices[0]?.length ?? 0) * cellSize;
         const h = (selectedTiles.tileIndices.length) * cellSize;
         if (w && h) {
-          octx.lineWidth = 1;
-          octx.strokeStyle = "#00E0FF";
-          octx.setLineDash([4, 3]);
-          octx.strokeRect(anchor.x + 0.5, anchor.y + 0.5, w - 1, h - 1);
-          octx.setLineDash([]);
+          // octx.lineWidth = 1;
+          // octx.strokeStyle = "#00E0FF";
+          // octx.setLineDash([4, 3]);
+          // octx.strokeRect(anchor.x + 0.5, anchor.y + 0.5, w - 1, h - 1);
+          // octx.setLineDash([]);
         }
       }
     }
@@ -277,8 +318,8 @@ const drawOverlaySelection = useCallback(
       console.log("x ", xy.x, ", y ", xy.y, ", w ", w, ", h ", h)
       // filled light tint + strong border
       octx.lineWidth = 2;
-      octx.strokeStyle = "#eeff00ff";
-      octx.fillStyle = "rgba(0, 0, 0, 0.10)";
+      octx.strokeStyle = "rgba(0, 150, 255, 1)";
+      octx.fillStyle = "rgba(0, 150, 255, 0.12)";
       octx.fillRect(xy.x + 0.5, xy.y + 0.5, w - 1, h - 1);
       octx.setLineDash([6, 4]);
       octx.strokeRect(xy.x + 0.5, xy.y + 0.5, w - 1, h - 1);
@@ -288,8 +329,8 @@ const drawOverlaySelection = useCallback(
 
 
       octx.lineWidth = 2;
-      octx.strokeStyle = "#eeff00ff";
-      octx.fillStyle = "rgba(0, 0, 0, 0.10)";
+      octx.strokeStyle = "rgba(0, 150, 255, 1)";
+      octx.fillStyle = "rgba(0, 150, 255, 0.10)";
       octx.fillRect(xy.x + 0.5, xy.y + 0.5, cellSize - 1, cellSize - 1);
       octx.setLineDash([6, 4]);
       octx.strokeRect(xy.x + 0.5, xy.y + 0.5, cellSize - 1, cellSize - 1);

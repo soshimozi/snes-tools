@@ -46,6 +46,30 @@ import ColorChannelInput from "./ColorChannelSlider";
 const STORAGE_KEY = "snes-editor@v1";
 const TILE_EDITOR_SCALE = 48;
 
+function checkerboardStyle(
+  cellSize: number,
+  light = "#eeeeee",
+  dark = "#bbbbbb"
+): React.CSSProperties {
+  // Reasonable square size based on the pixel cell size
+  const s = Math.max(2, Math.floor(96 / 2));
+  const offset = Math.floor(s / 2);
+
+  return {
+    backgroundColor: light,
+    backgroundImage: [
+      "linear-gradient(45deg, VAR_DARK 25%, transparent 25%)",
+      "linear-gradient(-45deg, VAR_DARK 25%, transparent 25%)",
+      "linear-gradient(45deg, transparent 75%, VAR_DARK 75%)",
+      "linear-gradient(-45deg, transparent 75%, VAR_DARK 75%)"
+    ]
+      .join(", ")
+      .replaceAll("VAR_DARK", dark),
+    backgroundSize: `${s}px ${s}px`,
+    backgroundPosition: `0 0, 0 ${offset}px, ${offset}px -${offset}px, -${offset}px 0px`
+  };
+}
+
 export default function SNESpriteEditor() {
   const {
     present: s,
@@ -630,6 +654,7 @@ export default function SNESpriteEditor() {
                       highlightSelected={s.highlightSelected}
                       selected={selectedEntries[0]}
                       onClick={updateMetasprite}
+                      transparentIndex0={s.showIndex0Transparency}
                     />
                   </div>
 
@@ -748,6 +773,7 @@ export default function SNESpriteEditor() {
                         palette={s.palettes[s.currentPalette]}
                         selected={s.selectedTileCell}
                         selectedRegion={s.selectedTileRegion}
+                        transparentIndex0={s.showIndex0Transparency}
                         onSelected={selectTile}
                         onRegionSelected={region => update(d => (d.selectedTileRegion = region, d))}
                         onCopy={({ cell, region }) => handleCopy(region, cell ?? undefined)}
@@ -757,7 +783,16 @@ export default function SNESpriteEditor() {
                         canPaste={() => s.clipboard !== null}
                       />
                     </div>
-                    <div className="flex justify-end">
+                    <div className="flex justify-between">
+                      <div className="flex flex-row gap-2">
+                        <div className="w-fit h-fit select-none">
+                          <StyledCheckbox
+                            checked={s.showIndex0Transparency}
+                            onChange={e => update(d => (d.showIndex0Transparency = e.target.checked, d))}
+                          />
+                        </div>
+                        <label>Show transparency for color index 0</label>
+                      </div>                      
                       {/* {hydrated && s.selectedTileCell &&( */}
                         <span className="text-xs">
                           Selected Tile: {tileIndex(s.selectedTileCell?.row ?? 0, s.selectedTileCell?.col ?? 0)}
@@ -840,16 +875,22 @@ export default function SNESpriteEditor() {
                 style={{ gridTemplateColumns: `repeat(${TILE_W}, ${TILE_EDITOR_SCALE}px)`, gridTemplateRows: `repeat(${TILE_H}, ${TILE_EDITOR_SCALE}px)` }}
               >
                 {tile.map((row, y) =>
-                  row.map((pix, x) => (
+                  row.map((pix, x) => { 
+                    
+                    const style =
+                      s.showIndex0Transparency && pix === 0
+                        ? checkerboardStyle(TILE_EDITOR_SCALE) // implied transparency
+                        : { background: s.palettes[s.currentPalette][pix] ?? "#000" };                    
+                    return (
                     <div
                       key={`${x}-${y}`}
                       onMouseDown={onCellDown(x, y)}
                       onMouseMove={onCellMove(x, y)}
                       className="border border-slate-300 hover:brightness-95"
-                      style={{ background: s.palettes[s.currentPalette][pix] ?? "#000" }}
+                      style={style}
                       title={`(${x},${y}) → ${pix}`}
                     />
-                  ))
+                  )})
                 )}
               </div>
             </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { SCALE } from "@/app/constants";
-import { indexToRowCol } from "@/Helpers";
+import { getCheckerPattern, indexToRowCol } from "@/Helpers";
 import { Cell, Region, Tile } from "@/types/EditorTypes";
 import React, { useRef, useCallback, useEffect, useState } from "react";
 
@@ -25,6 +25,7 @@ type Contextable = {
 export function Tilesheet({
   palette = ["#dddddd"],
   drawGridLines = false,
+  transparentIndex0 = false,
   tiles,
   onSelected,
   selected,
@@ -43,6 +44,7 @@ export function Tilesheet({
   onSelected: (selected: Cell) => void;
   selected: Cell | null;
   tiles: Tile[];
+  transparentIndex0?: boolean;
   palette?: string[];
   drawGridLines?: boolean;
   selectedRegion?: Region;
@@ -104,7 +106,14 @@ export function Tilesheet({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, cssWidth + 2, cssHeight + 2);
-    ctx.fillStyle = palette[0] ?? "#ffffff";
+
+    if (transparentIndex0) {
+      // implied transparency behind *everything*
+      ctx.fillStyle = getCheckerPattern(ctx, 32);
+    } else {
+      ctx.fillStyle = palette[0] ?? "#000";
+    }
+
     ctx.fillRect(0, 0, cssWidth + 2, cssHeight + 2);
 
     tiles.forEach((tile, index) => {
@@ -117,38 +126,34 @@ export function Tilesheet({
           const pix = tile[y][x];
           const wx = dx + (x * scale);
           const wy = dy + (y * scale);
-          ctx.fillStyle = palette[pix] ?? "#000";
-          ctx.fillRect(wx, wy, scale, scale);
+
+          if (pix === 0) {
+            if (transparentIndex0) {
+              continue;
+              // ctx.fillStyle = pattern!;
+              // ctx.fillRect(wx, wy, scale, scale);
+            } else {
+              ctx.fillStyle = palette[0] ?? "#000";
+              ctx.fillRect(wx, wy, scale, scale);
+            }
+          } else {
+            ctx.fillStyle = palette[pix] ?? "#000";
+            ctx.fillRect(wx, wy, scale, scale);
+          }
         }
       }
     });
-
-    if (drawGridLines) {
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(0,0,0,0.15)";
-      for (let cIdx = 1; cIdx < cols; cIdx++) {
-        const x = cIdx * cellSize + 0.5;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, cssHeight);
-        ctx.stroke();
-      }
-      for (let rIdx = 1; rIdx < rows; rIdx++) {
-        const y = rIdx * cellSize + 0.5;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(cssWidth, y);
-        ctx.stroke();
-      }
-    }
 
     if (selected) {
       const { col, row } = selected;
       const x = col * cellSize;
       const y = row * cellSize;
       ctx.lineWidth = 2;
-      ctx.strokeStyle = "rgba(255, 255, 255, 1)";
+      ctx.setLineDash([6, 4]);
+
+      ctx.strokeStyle = "rgba(0, 150, 255, 1)";
       ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+      ctx.setLineDash([]);
     }
 
     const paintRegion = (region: Region, styles?: { stroke?: string; fill?: string }) => {
@@ -162,7 +167,7 @@ export function Tilesheet({
       }
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 4]);
-      ctx.strokeStyle = styles?.stroke ?? "rgba(0,0,0,0.85)";
+      ctx.strokeStyle = "rgba(0, 150, 255, 0.9)";
       ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
       ctx.setLineDash([]);
     };
@@ -225,8 +230,8 @@ const updateLastPointer = (cell: Cell) => { lastPointerTileRef.current = cell; }
     updateLastPointer(start);             // <-- add this
     dragStartRef.current = { ...start, moved: false };
 
-    onSelected({ row: start.row, col: start.col });
-    setDraftRegion(null);
+    // onSelected({ row: start.row, col: start.col });
+    // setDraftRegion(null);
   };
 
   const handlePointerMove: React.PointerEventHandler<HTMLCanvasElement> = (e) => {
@@ -265,6 +270,7 @@ const updateLastPointer = (cell: Cell) => { lastPointerTileRef.current = cell; }
 
     if (!moved || (draftRegion?.cols === 1 && draftRegion?.rows === 1)) {
       onRegionSelected(undefined);
+      onSelected({ row: start.row, col: start.col });
       return;
     }
 
@@ -274,6 +280,7 @@ const updateLastPointer = (cell: Cell) => { lastPointerTileRef.current = cell; }
     const cur = snapToTile(xCss, yCss);
     const region = normRectToRegion(start, cur);
 
+    onSelected(null);
     onRegionSelected(region);
   };
 
@@ -453,6 +460,16 @@ useEffect(() => {
               setMenuOpen(false);
             }}
           />
+          <MenuItem
+            label="Paste Special"
+            kbd={navigator.platform.includes("Mac") ? "⌘V" : "Ctrl+V"}
+            disabled={!pasteEnabled || !menuAt}
+            onClick={() => {
+              if (!pasteEnabled || !menuAt) return;
+              onPaste?.({ at: menuAt, cell: selected, region: selectedRegion });
+              setMenuOpen(false);
+            }}
+          />          
           <hr className="my-1 border-slate-700" />
           <MenuItem
             label="Clear Selected"
