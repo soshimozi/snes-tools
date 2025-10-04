@@ -5,6 +5,7 @@ import type {
   Metasprite,
   Palette,
   Region,
+  SettingsModel,
   Sheet,
   TileRegionPayload,
 } from "@/types/EditorTypes";
@@ -37,19 +38,42 @@ export type EditorDoc = {
   selectedIds: string[];
   selectedTileCell: Cell;
   selectedTileRegion?: Region;
+
+  // Settings
   highlightSelected: boolean;
   drawGrid: boolean;
+  showIndex0Transparency: boolean; // NEW
+
+  // State
   showSpriteEditor: boolean;
   drawerOpen: boolean;
 
   // Tool (store only the type; icon is derived)
   tool: ToolType;
 
+  exportPrefixes?: { palette: string; tilesheet: string; metasprite: string };
+  
   // Clipboard (tile region)
   clipboard: TileRegionPayload | null;
+}  & Record<string, any>;
 
-  showIndex0Transparency: boolean; // NEW
-};
+
+// Convert EditorDoc → SettingsModel
+export function editorDocToSettings(doc: EditorDoc): SettingsModel {
+  return {
+    display: {
+      metaspriteHighlightSelected: !!doc.highlightSelected,
+      metaspriteDrawGrid: !!doc.drawGrid,
+      showTransparencyColor0: !!doc.showIndex0Transparency,
+    },
+    importSettings: {},
+    exportSettings: {
+      palettePrefix: doc.exportPrefixes?.palette ?? "",
+      tilesheetPrefix: doc.exportPrefixes?.tilesheet ?? "",
+      metaspritePrefix: doc.exportPrefixes?.metasprite ?? "",
+    },
+  };
+}
 
 
 // near your Contextable type:
