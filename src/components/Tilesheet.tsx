@@ -2,32 +2,19 @@
 
 import { SCALE } from "@/app/constants";
 import { getCheckerPattern, indexToRowCol } from "@/Helpers";
+import { Contextable, PasteMode } from "@/state/EditorDoc";
 import { Cell, Region, Tile } from "@/types/EditorTypes";
 import React, { useRef, useCallback, useEffect, useState } from "react";
 
 
-// ---- NEW: Context-menu props ----
-type Contextable = {
-  /** If provided, enables copy item when it returns true for current selection/region */
-  canCopy?: (ctx: { cell: Cell | null; region?: Region }) => boolean;
-  /** If provided, enables paste item when it returns true for the click location/selection */
-  canPaste?: (ctx: { cell: Cell | null; region?: Region }) => boolean;
-  onCopy?: (ctx: { cell: Cell | null; region?: Region }) => void;
-  onPaste?: (ctx: { at: Cell; cell: Cell | null; region?: Region }) => void;
-  onDelete?: (ctx: { cell: Cell | null; region?: Region }) => void;
-  /**
-   * Optional: notify parent the user opened the context menu.
-   * Use this if you want to manage your own menu. If you return true, built-in menu won't show.
-   */
-  onContextMenuOpen?: (ctx: { mouse: { x: number; y: number }, at: Cell, cell: Cell | null, region?: Region }) => boolean | void;
-};
+
 
 export function Tilesheet({
   palette = ["#dddddd"],
   drawGridLines = false,
   transparentIndex0 = false,
   tiles,
-  onSelected,
+  onSelected, 
   selected,
   /** controlled region */
   selectedRegion,
@@ -40,6 +27,7 @@ export function Tilesheet({
   onPaste,
   onDelete,
   onContextMenuOpen,
+  onPasteSpecial
 }: {
   onSelected: (selected: Cell) => void;
   selected: Cell | null;
@@ -49,6 +37,7 @@ export function Tilesheet({
   drawGridLines?: boolean;
   selectedRegion?: Region;
   onRegionSelected: (region?: Region) => void;
+  onPasteSpecial?: (ctx: { at: Cell; cell: Cell | null; region?: Region; mode: PasteMode }) => void;
 } & Contextable) {
   // ----- grid config -----
   const logicalTile = 8;
@@ -460,7 +449,37 @@ useEffect(() => {
               setMenuOpen(false);
             }}
           />
-          <MenuItem
+          <Submenu
+            label="Paste Special"
+            kbd={navigator.platform.includes("Mac") ? "⌘V" : "Ctrl+V"}
+            disabled={!pasteEnabled || !menuAt}
+          >
+            <MenuItem
+              label="Color Blend Using And (c1 & c2)"
+              onClick={() => {
+                if (!menuAt) return;
+                onPasteSpecial?.({ mode: "and", at: menuAt, cell: selected, region: selectedRegion });
+                setMenuOpen(false);
+              }}
+            />
+            <MenuItem
+              label="Color Blend Using Or (c1 | c2)"
+              onClick={() => {
+                if (!menuAt) return;
+                onPasteSpecial?.({ mode: "or", at: menuAt, cell: selected, region: selectedRegion });
+                setMenuOpen(false);
+              }}
+            />
+            <MenuItem
+              label="Color Blend Using XOR (c1 ^ c2)"
+              onClick={() => {
+                if (!menuAt) return;
+                onPasteSpecial?.({ mode: "xor", at: menuAt, cell: selected, region: selectedRegion });
+                setMenuOpen(false);
+              }}
+            />
+          </Submenu>          
+          {/* <MenuItem
             label="Paste Special"
             kbd={navigator.platform.includes("Mac") ? "⌘V" : "Ctrl+V"}
             disabled={!pasteEnabled || !menuAt}
@@ -469,7 +488,7 @@ useEffect(() => {
               onPaste?.({ at: menuAt, cell: selected, region: selectedRegion });
               setMenuOpen(false);
             }}
-          />          
+          />           */}
           <hr className="my-1 border-slate-700" />
           <MenuItem
             label="Clear Selected"
@@ -517,5 +536,85 @@ function MenuItem({
       <span className={destructive ? "text-rose-300" : ""}>{label}</span>
       {kbd ? <span className="text-xs text-slate-400">{kbd}</span> : null}
     </button>
+  );
+}
+
+
+function Submenu({
+  label,
+  kbd,
+  disabled,
+  destructive,
+  children, // submenu items (use <MenuItem> inside)
+}: {
+  label: string;
+  kbd?: string;
+  disabled?: boolean;
+  destructive?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [openLeft, setOpenLeft] = React.useState(false);
+  const btnRef = React.useRef<HTMLButtonElement | null>(null);
+
+  // Flip to the left if we’d overflow the viewport on the right
+  const positionSubmenu = () => {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const estWidth = 220; // rough submenu width
+    const wouldOverflowRight = rect.right + estWidth > window.innerWidth - 8;
+    setOpenLeft(wouldOverflowRight);
+  };
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={() => { positionSubmenu(); setOpen(true); }}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        ref={btnRef}
+        type="button"
+        disabled={disabled}
+        onClick={() => { positionSubmenu(); setOpen((v) => !v); }}
+        className={[
+          "flex w-full items-center justify-between gap-4 rounded-md px-3 py-2 text-left",
+          disabled
+            ? "opacity-40 cursor-not-allowed"
+            : "hover:bg-slate-800/80 active:bg-slate-800"
+        ].join(" ")}
+      >
+        <span className={destructive ? "text-rose-300" : ""}>{label}</span>
+        <div className="flex items-center gap-2">
+          {kbd ? <span className="text-xs text-slate-400">{kbd}</span> : null}
+          {/* chevron */}
+          <svg
+            className="h-3.5 w-3.5 opacity-70"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M7.293 14.707a1 1 0 0 1 0-1.414L9.586 11 7.293 8.707a1 1 0 1 1 1.414-1.414l3 3a1 1 0 0 1 0 1.414l-3 3a1 1 0 0 1-1.414 0z" />
+          </svg>
+        </div>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          aria-label={`${label} submenu`}
+          className="absolute z-[60] min-w-48 rounded-lg border border-slate-700 bg-slate-900/95 shadow-xl backdrop-blur px-1 py-1 text-sm"
+          style={
+            openLeft
+              ? { top: 0, right: "100%", marginRight: "0.25rem" }
+              : { top: 0, left: "100%", marginLeft: "0.25rem" }
+          }
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {children}
+        </div>
+      )}
+    </div>
   );
 }

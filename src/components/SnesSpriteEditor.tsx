@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Fragment, useCallback, useEffect, useMemo } from "react";
+import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { DraggableWindow } from "./DraggableWindow";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -40,8 +40,9 @@ import { DrawerMenu } from "./DrawerMenu";
 
 import { useUndoableState } from "@/hooks/useUndoableState";
 import { buildInitialDoc } from "@/state/buildInitialDoc";
-import { EditorDoc, toolIcon } from "@/state/EditorDoc";
+import { EditorDoc, PasteMode, PasteOptions, toolIcon } from "@/state/EditorDoc";
 import ColorChannelInput from "./ColorChannelSlider";
+import Modal from "./Modal";
 
 const STORAGE_KEY = "snes-editor@v1";
 const TILE_EDITOR_SCALE = 48;
@@ -84,6 +85,7 @@ export default function SNESpriteEditor() {
   } = useUndoableState<EditorDoc>(buildInitialDoc, { storageKey: STORAGE_KEY, limit: 200 });
 
   const isStrokingRef = React.useRef(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // --- Keyboard shortcuts
   useEffect(() => {
@@ -453,6 +455,23 @@ export default function SNESpriteEditor() {
     });
   };
 
+
+  const handlePasteSpecial = (at: Cell, mode: PasteMode, includeZeroSrc = false) => {
+    if (!s.clipboard || !at) return;
+    update(d => {
+      d.tilesheets = producePasteIntoTilesheet(
+        d.tilesheets,
+        d.currentTilesheet,
+        d.clipboard!,
+        at,
+        indexToRowCol,
+        { mode, includeZeroSrc }
+      );
+      return d;
+    });
+};
+
+
   const handleDelete = (region?: Region, cell?: Cell) => {
     update(d => {
       const targetRegion = region ?? (cell ? { startRow: cell.row!, startCol: cell.col!, rows: 1, cols: 1 } : undefined);
@@ -473,8 +492,10 @@ export default function SNESpriteEditor() {
           break;
         case "tiles":
         case "palette":
+          break;
+
         case "settings":
-          /* no-op placeholder */
+          setShowSettings(true);
           break;
         case "meta-export":
           /* open export modal */
@@ -778,6 +799,7 @@ export default function SNESpriteEditor() {
                         onRegionSelected={region => update(d => (d.selectedTileRegion = region, d))}
                         onCopy={({ cell, region }) => handleCopy(region, cell ?? undefined)}
                         onPaste={({ at }) => handlePaste(at)}
+                        onPasteSpecial={({ at, mode }) => handlePasteSpecial(at, mode)}
                         onDelete={({ cell, region }) => handleDelete(region, cell ?? undefined)}
                         canCopy={({ cell, region }) => !!(region || cell)}
                         canPaste={() => s.clipboard !== null}
@@ -859,6 +881,17 @@ export default function SNESpriteEditor() {
           </div>
         </main>
       </div>
+
+      <Modal isOpen={showSettings} title="Test" 
+        draggable 
+        closeOnBackdropClick 
+        closeOnEsc 
+        onClose={(reason) =>
+          setShowSettings(false)
+        }
+      >
+        <div className="text-black">Modal content here</div>
+      </Modal>
 
       {/* Tile Editor window */}
       <DraggableWindow

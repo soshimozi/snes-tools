@@ -1,4 +1,5 @@
 import { TILE_H, TILE_W } from "./app/constants";
+import { PasteMode, PasteOptions } from "./state/EditorDoc";
 import { Cell, Palette, Region, Tile, TileRegionPayload } from "./types/EditorTypes";
 
 // Reverse: given index → (row, col)
@@ -297,9 +298,14 @@ export function producePasteIntoTilesheet(
   payload: TileRegionPayload,
   at: Cell,  // destination top-left (tile coords)
   indexToRowCol: (i: number) => { row: number; col: number },
+  options?: PasteOptions,                 // <-- NEW, optional  
   gridCols = 16,
-  gridRows = 16
+  gridRows = 16,
 ) {
+
+  const mode: PasteMode = options?.mode ?? "as-is";
+  const includeZeroSrc = options?.includeZeroSrc ?? false;
+    
   return prevTilesheets.map((sheet, i) => {
     if(!at) throw new Error("at is null");
 
@@ -318,7 +324,24 @@ export function producePasteIntoTilesheet(
         if (destIdx < 0) continue;
 
         const srcIdx = r * payload.cols + c;
-        nextTiles[destIdx] = deepCopyTile(payload.tiles[srcIdx]);
+
+        //nextTiles[destIdx] = deepCopyTile(payload.tiles[srcIdx]);
+        if (mode === "as-is") {
+          // Fast path: replace entire tile (exactly your current behavior)
+          nextTiles[destIdx] = deepCopyTile(payload.tiles[srcIdx]);
+        } else {
+          // Operator path: merge per pixel
+          const dstTile = nextTiles[destIdx];           // 8x8
+          const srcTile = payload.tiles[srcIdx];        // 8x8
+
+          for (let y = 0; y < 8; y++) {
+            for (let x = 0; x < 8; x++) {
+              const d = dstTile[y][x] & 0xF;
+              const s = srcTile[y][x] & 0xF;
+              dstTile[y][x] = applyNibbleOp(d, s, mode, includeZeroSrc);
+            }
+          }
+        }        
       }
     }
 
@@ -448,8 +471,27 @@ export function savePalettes(filename: string, palettes: Palette[], littleEndian
   
   return true;
 
+
+
 }
 
+
+export function applyNibbleOp(dst: number, src: number, mode: PasteMode, includeZeroSrc = false): number {
+  const s = src & 0xF;
+  const d = dst & 0xF;
+
+  if (mode === "as-is") return s;
+
+  // Treat 0 as transparent for ops unless explicitly included
+  if (!includeZeroSrc && s === 0) return d;
+
+  switch (mode) {
+    case "xor": return (d ^ s) & 0xF;
+    case "or":  return (d | s) & 0xF;
+    case "and": return (d & s) & 0xF;
+    default:    return d;
+  }
+}
 
 // Cached per (scale, light, dark) triple
 const _checkerCache = new Map<string, CanvasPattern>();
@@ -483,3 +525,4 @@ export function getCheckerPattern(
   _checkerCache.set(key, pat);
   return pat;
 }
+
