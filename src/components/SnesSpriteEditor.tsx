@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Fragment, useCallback, useEffect, useMemo } from "react";
+import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { DraggableWindow } from "./DraggableWindow";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -40,11 +40,36 @@ import { DrawerMenu } from "./DrawerMenu";
 
 import { useUndoableState } from "@/hooks/useUndoableState";
 import { buildInitialDoc } from "@/state/buildInitialDoc";
-import { EditorDoc, toolIcon } from "@/state/EditorDoc";
+import { EditorDoc, PasteMode, PasteOptions, toolIcon } from "@/state/EditorDoc";
 import ColorChannelInput from "./ColorChannelSlider";
+import Modal from "./Modal";
 
 const STORAGE_KEY = "snes-editor@v1";
 const TILE_EDITOR_SCALE = 48;
+
+function checkerboardStyle(
+  cellSize: number,
+  light = "#eeeeee",
+  dark = "#bbbbbb"
+): React.CSSProperties {
+  // Reasonable square size based on the pixel cell size
+  const s = Math.max(2, Math.floor(96 / 2));
+  const offset = Math.floor(s / 2);
+
+  return {
+    backgroundColor: light,
+    backgroundImage: [
+      "linear-gradient(45deg, VAR_DARK 25%, transparent 25%)",
+      "linear-gradient(-45deg, VAR_DARK 25%, transparent 25%)",
+      "linear-gradient(45deg, transparent 75%, VAR_DARK 75%)",
+      "linear-gradient(-45deg, transparent 75%, VAR_DARK 75%)"
+    ]
+      .join(", ")
+      .replaceAll("VAR_DARK", dark),
+    backgroundSize: `${s}px ${s}px`,
+    backgroundPosition: `0 0, 0 ${offset}px, ${offset}px -${offset}px, -${offset}px 0px`
+  };
+}
 
 export default function SNESpriteEditor() {
   const {
@@ -60,6 +85,7 @@ export default function SNESpriteEditor() {
   } = useUndoableState<EditorDoc>(buildInitialDoc, { storageKey: STORAGE_KEY, limit: 200 });
 
   const isStrokingRef = React.useRef(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // --- Keyboard shortcuts
   useEffect(() => {
@@ -429,6 +455,23 @@ export default function SNESpriteEditor() {
     });
   };
 
+
+  const handlePasteSpecial = (at: Cell, mode: PasteMode, includeZeroSrc = false) => {
+    if (!s.clipboard || !at) return;
+    update(d => {
+      d.tilesheets = producePasteIntoTilesheet(
+        d.tilesheets,
+        d.currentTilesheet,
+        d.clipboard!,
+        at,
+        indexToRowCol,
+        { mode, includeZeroSrc }
+      );
+      return d;
+    });
+};
+
+
   const handleDelete = (region?: Region, cell?: Cell) => {
     update(d => {
       const targetRegion = region ?? (cell ? { startRow: cell.row!, startCol: cell.col!, rows: 1, cols: 1 } : undefined);
@@ -449,8 +492,10 @@ export default function SNESpriteEditor() {
           break;
         case "tiles":
         case "palette":
+          break;
+
         case "settings":
-          /* no-op placeholder */
+          setShowSettings(true);
           break;
         case "meta-export":
           /* open export modal */
@@ -630,6 +675,7 @@ export default function SNESpriteEditor() {
                       highlightSelected={s.highlightSelected}
                       selected={selectedEntries[0]}
                       onClick={updateMetasprite}
+                      transparentIndex0={s.showIndex0Transparency}
                     />
                   </div>
 
@@ -748,16 +794,27 @@ export default function SNESpriteEditor() {
                         palette={s.palettes[s.currentPalette]}
                         selected={s.selectedTileCell}
                         selectedRegion={s.selectedTileRegion}
+                        transparentIndex0={s.showIndex0Transparency}
                         onSelected={selectTile}
                         onRegionSelected={region => update(d => (d.selectedTileRegion = region, d))}
                         onCopy={({ cell, region }) => handleCopy(region, cell ?? undefined)}
                         onPaste={({ at }) => handlePaste(at)}
+                        onPasteSpecial={({ at, mode }) => handlePasteSpecial(at, mode)}
                         onDelete={({ cell, region }) => handleDelete(region, cell ?? undefined)}
                         canCopy={({ cell, region }) => !!(region || cell)}
                         canPaste={() => s.clipboard !== null}
                       />
                     </div>
-                    <div className="flex justify-end">
+                    <div className="flex justify-between">
+                      <div className="flex flex-row gap-2">
+                        <div className="w-fit h-fit select-none">
+                          <StyledCheckbox
+                            checked={s.showIndex0Transparency}
+                            onChange={e => update(d => (d.showIndex0Transparency = e.target.checked, d))}
+                          />
+                        </div>
+                        <label>Show transparency for color index 0</label>
+                      </div>                      
                       {/* {hydrated && s.selectedTileCell &&( */}
                         <span className="text-xs">
                           Selected Tile: {tileIndex(s.selectedTileCell?.row ?? 0, s.selectedTileCell?.col ?? 0)}
@@ -825,6 +882,17 @@ export default function SNESpriteEditor() {
         </main>
       </div>
 
+      <Modal isOpen={showSettings} title="Test" 
+        draggable 
+        closeOnBackdropClick 
+        closeOnEsc 
+        onClose={(reason) =>
+          setShowSettings(false)
+        }
+      >
+        <div className="text-black">Modal content here</div>
+      </Modal>
+
       {/* Tile Editor window */}
       <DraggableWindow
         className="text-slate-700"
@@ -840,16 +908,22 @@ export default function SNESpriteEditor() {
                 style={{ gridTemplateColumns: `repeat(${TILE_W}, ${TILE_EDITOR_SCALE}px)`, gridTemplateRows: `repeat(${TILE_H}, ${TILE_EDITOR_SCALE}px)` }}
               >
                 {tile.map((row, y) =>
-                  row.map((pix, x) => (
+                  row.map((pix, x) => { 
+                    
+                    const style =
+                      s.showIndex0Transparency && pix === 0
+                        ? checkerboardStyle(TILE_EDITOR_SCALE) // implied transparency
+                        : { background: s.palettes[s.currentPalette][pix] ?? "#000" };                    
+                    return (
                     <div
                       key={`${x}-${y}`}
                       onMouseDown={onCellDown(x, y)}
                       onMouseMove={onCellMove(x, y)}
                       className="border border-slate-300 hover:brightness-95"
-                      style={{ background: s.palettes[s.currentPalette][pix] ?? "#000" }}
+                      style={style}
                       title={`(${x},${y}) → ${pix}`}
                     />
-                  ))
+                  )})
                 )}
               </div>
             </div>
