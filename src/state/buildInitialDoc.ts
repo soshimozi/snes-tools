@@ -52,5 +52,6 @@ export function buildInitialDoc(): EditorDoc {
     tool: "brush",
     clipboard: null,
     showIndex0Transparency: false, // NEW
+    exportPrefixes: { palette: "", tilesheet: "", metasprite: "" },
   };
 }

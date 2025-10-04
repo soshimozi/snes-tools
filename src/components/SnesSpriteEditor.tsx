@@ -9,7 +9,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 import {
-  Cell, MetaSpriteEntry, Region, SelectedTiles, Tile} from "@/types/EditorTypes";
+  Cell, EditorSettingsBridge, EditorSettingsBridgeMutable, MetaSpriteEntry, Region, SelectedTiles, Tile} from "@/types/EditorTypes";
 
 import { v4 as uuid } from "uuid";
 import { SelectList } from "./SingleSelectList";
@@ -651,7 +651,7 @@ export default function SNESpriteEditor() {
 
         <main className="mt-2">
           <div className="mx-auto w-full">
-            <div className="flex flex-row gap-10 justify-center">
+            <div className="flex flex-row gap-5 justify-center">
 
               {/* Metasprite Editor column */}
               <div className="flex flex-col gap-1">
@@ -676,7 +676,10 @@ export default function SNESpriteEditor() {
                 </div>
 
                 <div className="flex flex-col">
-                  <div className="mb-2 p-1 rounded-lg border-2 border-blue-400 bg-transparent">
+                <div className="flex flex-row mb-2 p-1 rounded-lg border-2 border-blue-400 bg-transparent">
+                  <div className="grid grid-cols-[minmax(0,1fr)_18rem] gap-3 items-stretch">
+                    <div className="min-w-0 h-full">
+                    {/* Canvas */}
                     <MetaSpriteEditor
                       entries={currentMetaSpriteEntries}
                       tilesheets={s.tilesheets}
@@ -689,32 +692,83 @@ export default function SNESpriteEditor() {
                       onClick={updateMetasprite}
                       transparentIndex0={s.showIndex0Transparency}
                     />
+                    </div>
+
+                    {/* Right rail: sprites list */}
+                    <aside className="flex flex-col min-h-[320px] max-h-[512px] my-auto">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">
+                          Sprites ({currentMetaSpriteEntries.length})
+                        </span>
+                        <div className="flex gap-2">
+                          <StyledButton width={35} className="h-6" onClick={deleteSelected}>
+                            Clear Selected
+                          </StyledButton>
+                          <StyledButton width={35} className="h-6" onClick={deleteAll}>
+                            Clear
+                          </StyledButton>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 overflow-auto rounded border border-slate-200">
+                        <SelectList
+                          maxHeight={9999}             // rail controls height; container scrolls
+                          options={options}
+                          values={s.selectedIds}
+                          onChange={(ids) => update(d => (d.selectedIds = ids, d))}
+                          onDeleteItem={(id) => {
+                            update(d => {
+                              const ms = d.metasprites[d.currentMetasprite];
+                              ms.entries = ms.entries.filter(e => e.id !== id);
+                              d.selectedIds = d.selectedIds.filter(x => x !== id);
+                              return d;
+                            });
+                          }}
+                          onDrop={(fromIndex, toIndex) => {
+                            update(d => {
+                              const ms = d.metasprites[d.currentMetasprite];
+                              ms.entries = moveItem(ms.entries, fromIndex, toIndex);
+                              return d;
+                            });
+                          }}
+                          onDropMulti={(fromIndices, insertBeforeIndex) => {
+                            update(d => {
+                              const arr = d.metasprites[d.currentMetasprite].entries;
+                              const order = [...fromIndices].sort((a, b) => a - b);
+                              const picked = order.map(i => arr[i]);
+                              const remaining = arr.filter((_, idx) => !order.includes(idx));
+                              const insertAt = Math.max(0, Math.min(insertBeforeIndex, remaining.length));
+                              d.metasprites[d.currentMetasprite].entries = [
+                                ...remaining.slice(0, insertAt),
+                                ...picked,
+                                ...remaining.slice(insertAt),
+                              ];
+                              return d;
+                            });
+                          }}
+                        />
+                      </div>
+                    </aside>
                   </div>
+                </div>
+
+                  {/* <div className="mb-2 p-1 rounded-lg border-2 border-blue-400 bg-transparent">
+                    <MetaSpriteEditor
+                      entries={currentMetaSpriteEntries}
+                      tilesheets={s.tilesheets}
+                      drawGrid={s.drawGrid}
+                      selectedTiles={selectedTiles}
+                      selectedRegion={s.selectedTileRegion}
+                      palettes={s.palettes}
+                      highlightSelected={s.highlightSelected}
+                      selected={selectedEntries}
+                      onClick={updateMetasprite}
+                      transparentIndex0={s.showIndex0Transparency}
+                    />
+                  </div> */}
 
                   <div className="flex flex-row gap-10">
                     <div className="flex flex-col">
-                      <div className="flex mb-2 ml-1">
-                        <div className="flex flex-row gap-4">
-                          <div className="flex flex-row gap-2">
-                            <div className="w-fit h-fit select-none">
-                              <StyledCheckbox
-                                checked={s.highlightSelected}
-                                onChange={e => update(d => (d.highlightSelected = e.target.checked, d))}
-                              />
-                            </div>
-                            <label>Highlight selected sprite</label>
-                          </div>
-                          <div className="flex flex-row gap-2">
-                            <div className="w-fit h-fit select-none">
-                              <StyledCheckbox
-                                checked={s.drawGrid}
-                                onChange={e => update(d => (d.drawGrid = e.target.checked, d))}
-                              />
-                            </div>
-                            <label>Draw Grid</label>
-                          </div>
-                        </div>
-                      </div>
 
                       <div className="flex justify-between w-full items-center">
                         <div className="flex flex-row gap-2 items-center">
@@ -730,7 +784,7 @@ export default function SNESpriteEditor() {
                         </div>
                       </div>
 
-                      <div className="flex flex-col w-130 gap-1">
+                      {/* <div className="flex flex-col w-130 gap-1">
                         <div className="flex flex-row justify-between items-center">
                           <span className="mt-1 text-sm">List of Sprites {currentMetaSpriteEntries.length}</span>
                           <div className="flex gap-2">
@@ -775,7 +829,7 @@ export default function SNESpriteEditor() {
                           }}
                           onChange={(ids) => update(d => (d.selectedIds = ids, d))}
                         />
-                      </div>
+                      </div> */}
                     </div>
                   </div>
                 </div>
@@ -821,20 +875,11 @@ export default function SNESpriteEditor() {
                       />
                     </div>
                     <div className="flex justify-between">
-                      <div className="flex flex-row gap-2">
-                        <div className="w-fit h-fit select-none">
-                          <StyledCheckbox
-                            checked={s.showIndex0Transparency}
-                            onChange={e => update(d => (d.showIndex0Transparency = e.target.checked, d))}
-                          />
-                        </div>
-                        <label>Show transparency for color index 0</label>
-                      </div>                      
-                      {/* {hydrated && s.selectedTileCell &&( */}
+                      {hydrated && s.selectedTileCell &&(
                         <span className="text-xs">
                           Selected Tile: {tileIndex(s.selectedTileCell?.row ?? 0, s.selectedTileCell?.col ?? 0)}
                         </span>
-                      {/* )} */}
+                      )}
                     </div>
                   </div>
                 </div>
@@ -897,7 +942,7 @@ export default function SNESpriteEditor() {
         </main>
       </div>
 
-      <Modal isOpen={showSettings} title="Test" 
+      <Modal isOpen={showSettings} title="Settings" 
         draggable 
         closeOnBackdropClick 
         closeOnEsc 
@@ -905,7 +950,13 @@ export default function SNESpriteEditor() {
           setShowSettings(false)
         }
       >
-        <div className="text-black">Modal content here</div>
+        <div className="text-black max-w-xl">
+          <EditorSettingsBridgeMutable
+            doc={s}
+            setDoc={update} // single source of truth
+            className="space-y-6"
+          />
+        </div>      
       </Modal>
 
       {/* Tile Editor window */}
