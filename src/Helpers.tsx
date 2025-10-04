@@ -231,10 +231,10 @@ export function extractRegionTiles(
   const rowColToIndex = buildRowColToIndex(tiles.length, indexToRowCol);
 
   // Clamp region to sheet bounds
-  const startCol = Math.max(0, Math.min(gridCols - 1, region.col));
-  const startRow = Math.max(0, Math.min(gridRows - 1, region.row));
-  const endCol = Math.max(0, Math.min(gridCols - 1, region.col + region.cols - 1));
-  const endRow = Math.max(0, Math.min(gridRows - 1, region.row + region.rows - 1));
+  const startCol = Math.max(0, Math.min(gridCols - 1, region.startCol));
+  const startRow = Math.max(0, Math.min(gridRows - 1, region.startRow));
+  const endCol = Math.max(0, Math.min(gridCols - 1, region.startCol + region.cols - 1));
+  const endRow = Math.max(0, Math.min(gridRows - 1, region.startRow + region.rows - 1));
 
   const outCols = endCol - startCol + 1;
   const outRows = endRow - startRow + 1;
@@ -271,10 +271,10 @@ export function extractRegionFromTilesheet(
   const rowColToIndex = buildRowColToIndex(tilesheetTiles.length, indexToRowCol);
 
   // Clamp region to sheet bounds
-  const startCol = Math.max(0, Math.min(gridCols - 1, region.col));
-  const startRow = Math.max(0, Math.min(gridRows - 1, region.row));
-  const endCol   = Math.max(0, Math.min(gridCols - 1, region.col + region.cols - 1));
-  const endRow   = Math.max(0, Math.min(gridRows - 1, region.row + region.rows - 1));
+  const startCol = Math.max(0, Math.min(gridCols - 1, region.startCol));
+  const startRow = Math.max(0, Math.min(gridRows - 1, region.startRow));
+  const endCol   = Math.max(0, Math.min(gridCols - 1, region.startCol + region.cols - 1));
+  const endRow   = Math.max(0, Math.min(gridRows - 1, region.startRow + region.rows - 1));
 
   const outCols = endCol - startCol + 1;
   const outRows = endRow - startRow + 1;
@@ -358,10 +358,10 @@ export function produceDeleteRegionInTilesheet(
     const rowColToIndex = buildRowColToIndex(sheet.tiles.length, indexToRowCol);
     const nextTiles = sheet.tiles.map(deepCopyTile);
 
-    const startCol = Math.max(0, Math.min(gridCols - 1, region.col));
-    const startRow = Math.max(0, Math.min(gridRows - 1, region.row));
-    const endCol   = Math.max(0, Math.min(gridCols - 1, region.col + region.cols - 1));
-    const endRow   = Math.max(0, Math.min(gridRows - 1, region.row + region.rows - 1));
+    const startCol = Math.max(0, Math.min(gridCols - 1, region.startCol));
+    const startRow = Math.max(0, Math.min(gridRows - 1, region.startRow));
+    const endCol   = Math.max(0, Math.min(gridCols - 1, region.startCol + region.cols - 1));
+    const endRow   = Math.max(0, Math.min(gridRows - 1, region.startRow + region.rows - 1));
 
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {

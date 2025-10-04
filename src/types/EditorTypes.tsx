@@ -38,8 +38,8 @@ export type Sheet = {
 
 /** Region is expressed in tile units (cols/rows) with a tile-aligned top-left */
 export type Region = {
-  col: number;   // left (tile)
-  row: number;   // top (tile)
+  startCol: number;   // left (tile)
+  startRow: number;   // top (tile)
   cols: number;  // width  (in tiles)
   rows: number;  // height (in tiles)
 };
@@ -48,4 +48,11 @@ export type TileRegionPayload = {
   tiles: Tile[];   // row-major tiles
   rows: number;    // height (in tiles)
   cols: number;    // width  (in tiles)
+};
+
+export type SelectedTiles = {
+  tilesheetIndex: number;         // which tilesheet to pull tiles from
+  paletteIndex: number;           // which palette to color with
+  tileIndices: number[][];        // 2D grid of tile indices (rows x cols)
+  opacity?: number;               // optional preview alpha (0..1), default 1
 };

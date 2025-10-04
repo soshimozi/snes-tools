@@ -9,7 +9,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 import {
-  Cell, MetaSpriteEntry, Region, Tile} from "@/types/EditorTypes";
+  Cell, MetaSpriteEntry, Region, SelectedTiles, Tile} from "@/types/EditorTypes";
 
 import { v4 as uuid } from "uuid";
 import { SelectList } from "./SingleSelectList";
@@ -365,7 +365,7 @@ export default function SNESpriteEditor() {
             const e: MetaSpriteEntry = {
               id: uuid(),
               tileSheetIndex: d.currentTilesheet,
-              tileIndex: tileIndex(reg.row + y, reg.col + x),
+              tileIndex: tileIndex(reg.startRow + y, reg.startCol + x),
               paletteIndex: d.currentPalette,
               x: locationX,
               y: locationY,
@@ -431,7 +431,7 @@ export default function SNESpriteEditor() {
 
   const handleDelete = (region?: Region, cell?: Cell) => {
     update(d => {
-      const targetRegion = region ?? (cell ? { row: cell.row!, col: cell.col!, rows: 1, cols: 1 } : undefined);
+      const targetRegion = region ?? (cell ? { startRow: cell.row!, startCol: cell.col!, rows: 1, cols: 1 } : undefined);
       if (!targetRegion) return d;
       d.tilesheets = produceDeleteRegionInTilesheet(
         d.tilesheets, d.currentTilesheet, targetRegion, indexToRowCol
@@ -513,6 +513,41 @@ export default function SNESpriteEditor() {
   const stopStroke = () => { isStrokingRef.current = false; };
   //const stopStroke = () => {/* no global state needed now */};
 
+  const selectedTiles = useMemo<SelectedTiles | undefined>(() => {
+    // Prefer a selected region
+    if (s.selectedTileRegion) {
+      const r = s.selectedTileRegion;
+      // Build a rows x cols grid of tile indices from the tilesheet
+      const grid: number[][] = [];
+      for (let y = 0; y < r.rows; y++) {
+        const row: number[] = [];
+        for (let x = 0; x < r.cols; x++) {
+          row.push(tileIndex(r.startRow + y, r.startCol + x));
+        }
+        grid.push(row);
+      }
+      return {
+        tilesheetIndex: s.currentTilesheet,
+        paletteIndex: s.currentPalette,
+        tileIndices: grid,
+        opacity: 0.3, // nice for preview; tweak as you like
+      };
+    }
+
+    // Else, a single selected cell (1x1)
+    if (s.selectedTileCell) {
+      const idx = tileIndex(s.selectedTileCell.row ?? 0, s.selectedTileCell.col ?? 0);
+      return {
+        tilesheetIndex: s.currentTilesheet,
+        paletteIndex: s.currentPalette,
+        tileIndices: [[idx]],
+        opacity: 0.9,
+      };
+    }
+
+    // Nothing selected → no preview block
+    return undefined;
+  }, [s.selectedTileRegion, s.selectedTileCell, s.currentTilesheet, s.currentPalette]);  
   // ---------- Render ----------
   return (
     <Fragment>
@@ -589,7 +624,8 @@ export default function SNESpriteEditor() {
                       entries={currentMetaSpriteEntries}
                       tilesheets={s.tilesheets}
                       drawGrid={s.drawGrid}
-                      highlightRegion={s.selectedTileRegion}
+                      selectedTiles={selectedTiles}
+                      selectedRegion={s.selectedTileRegion}
                       palettes={s.palettes}
                       highlightSelected={s.highlightSelected}
                       selected={selectedEntries[0]}

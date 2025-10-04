@@ -1,22 +1,23 @@
 "use client";
 
 import { SCALE } from "@/app/constants";
-import { MetaSpriteEntry, Region, Sheet, Tile } from "@/types/EditorTypes";
+import { MetaSpriteEntry, Region, SelectedTiles, Sheet, Tile } from "@/types/EditorTypes";
 import React, { useRef, useCallback, useEffect, useState } from "react";
 
 export function MetaSpriteEditor(
   {
     entries, onClick, palettes, tilesheets, selected,
-    highlightSelected = false, drawGrid = false, highlightRegion
+    highlightSelected = false, drawGrid = false, selectedRegion, selectedTiles
   }: {
     entries: MetaSpriteEntry[];
     onClick: ({row, col} : {row: number, col: number}) => void;
     palettes: string[][];
     tilesheets: Sheet[];
-    highlightRegion?: Region;
+    selectedRegion?: Region;
     selected?: MetaSpriteEntry;
     highlightSelected?: boolean;
     drawGrid?: boolean;
+    selectedTiles?: SelectedTiles;  // <-- NEW
   }) {
 
   const logicalTile = 8;
@@ -30,6 +31,37 @@ export function MetaSpriteEditor(
 
   // track the last snapped hover cell (canvas pixels, snapped to cellSize)
   const [hoverXY, setHoverXY] = useState<{x: number; y: number} | null>(null);
+
+    // draw a single 8x8 tile at pixel (dx, dy) into ctx, using given palette
+  const drawOneTile = (
+    ctx: CanvasRenderingContext2D,
+    tile: number[][],
+    dx: number,
+    dy: number,
+    scale: number,
+    palette: string[],
+  ) => {
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        const pix = tile[y][x];
+        if (pix !== 0) {
+          ctx.fillStyle = palette[pix] ?? "#000";
+          ctx.fillRect(dx + x * scale, dy + y * scale, scale, scale);
+        }
+      }
+    }
+  };
+
+  // choose where to anchor the preview block (hover cell > region top-left)
+  const getPreviewAnchorPx = (
+    hoverXY: {x:number;y:number}|null,
+    selectedRegion: {startRow:number; startCol:number} | undefined,
+    cellSize: number
+  ) => {
+    if (hoverXY) return { x: hoverXY.x, y: hoverXY.y };
+    if (selectedRegion) return { x: selectedRegion.startCol * cellSize, y: selectedRegion.startRow * cellSize };
+    return null;
+  };
 
   // Normalize into [0,mod)
   const norm = (n: number, mod: number) => ((n % mod) + mod) % mod;
@@ -193,11 +225,54 @@ const drawOverlaySelection = useCallback(
 
     octx.clearRect(0, 0, overlay.width, overlay.height);
 
-    // (a) draw selectedRegion if provided
-    if (highlightRegion && xy) {
-      console.log('highlightRegion: ', highlightRegion);
+    if (selectedTiles?.tileIndices?.length && tilesheets[selectedTiles.tilesheetIndex]) {
+      const anchor = getPreviewAnchorPx(xy, selectedRegion, cellSize);
+      if (anchor) {
+        const ts = tilesheets[selectedTiles.tilesheetIndex];
+        const palette = palettes[selectedTiles.paletteIndex] ?? palettes[0] ?? ["#000000"];
+        const alpha = selectedTiles.opacity ?? 1;
 
-      const { x, y, w, h } = regionToPixelRect({ startRow: xy.y, startCol: xy.x, cols: highlightRegion.cols, rows: highlightRegion.rows });
+        octx.save();
+        octx.globalAlpha = alpha;
+
+        // draw each tile in the 2D grid
+        for (let r = 0; r < selectedTiles.tileIndices.length; r++) {
+          const row = selectedTiles.tileIndices[r];
+          for (let c = 0; c < row.length; c++) {
+            const tileIndex = row[c];
+            const tile = ts.tiles[tileIndex];
+            if (!tile) continue;
+
+            const dx = anchor.x + c * cellSize;
+            const dy = anchor.y + r * cellSize;
+
+            // clip to canvas bounds (optional but avoids overdraw)
+            if (dx + cellSize < 0 || dy + cellSize < 0 || dx >= overlay.width || dy >= overlay.height) continue;
+
+            drawOneTile(octx, tile, dx, dy, scale, palette);
+          }
+        }
+
+        octx.restore();
+
+        // optional outline for the preview block
+        const w = (selectedTiles.tileIndices[0]?.length ?? 0) * cellSize;
+        const h = (selectedTiles.tileIndices.length) * cellSize;
+        if (w && h) {
+          octx.lineWidth = 1;
+          octx.strokeStyle = "#00E0FF";
+          octx.setLineDash([4, 3]);
+          octx.strokeRect(anchor.x + 0.5, anchor.y + 0.5, w - 1, h - 1);
+          octx.setLineDash([]);
+        }
+      }
+    }
+
+    // (a) draw selectedRegion if provided
+    if (selectedRegion && xy) {
+      console.log('highlightRegion: ', selectedRegion);
+
+      const { x, y, w, h } = regionToPixelRect({ startRow: xy.y, startCol: xy.x, cols: selectedRegion.cols, rows: selectedRegion.rows });
 
       console.log("x ", xy.x, ", y ", xy.y, ", w ", w, ", h ", h)
       // filled light tint + strong border
@@ -208,10 +283,10 @@ const drawOverlaySelection = useCallback(
       octx.setLineDash([6, 4]);
       octx.strokeRect(xy.x + 0.5, xy.y + 0.5, w - 1, h - 1);
       octx.setLineDash([]);
-    } else
 
-    // (b) draw the current hover cell (on top)
-    if (xy) {
+    } else   if (xy) { // (b) draw the current hover cell (on top)
+
+
       octx.lineWidth = 2;
       octx.strokeStyle = "#eeff00ff";
       octx.fillStyle = "rgba(0, 0, 0, 0.10)";
@@ -219,16 +294,31 @@ const drawOverlaySelection = useCallback(
       octx.setLineDash([6, 4]);
       octx.strokeRect(xy.x + 0.5, xy.y + 0.5, cellSize - 1, cellSize - 1);
       octx.setLineDash([]);
+
+      
     }
   },
-  [cellSize, highlightRegion, regionToPixelRect]
+  [cellSize, selectedRegion, regionToPixelRect, selectedTiles, tilesheets, scale]
 );
+
+
+const clearOverlay = () => {
+  const overlay = overlayRef.current;
+  const octx = overlay?.getContext("2d");
+  if (overlay && octx) octx.clearRect(0, 0, overlay.width, overlay.height);
+};
+
+const handlePointerOut: React.PointerEventHandler<HTMLCanvasElement> = () => {
+  setHoverXY(null);
+  clearOverlay();
+};
 
 
   // whenever hoverXY changes, redraw overlay
   useEffect(() => {
+    if(!hoverXY) return;
     drawOverlaySelection(hoverXY);
-  }, [hoverXY, drawOverlaySelection, drawMeta, highlightRegion]);
+  }, [hoverXY, drawOverlaySelection, drawMeta, selectedRegion, selectedTiles, tilesheets, palettes]);
 
 
   // pointer logic (use the OVERLAY for interaction so you never disturb the base)
@@ -248,6 +338,7 @@ const drawOverlaySelection = useCallback(
   };
 
   const handlePointerLeave: React.PointerEventHandler<HTMLCanvasElement> = () => {
+    clearOverlay();
     setHoverXY(null); // clears overlay
   };
 
@@ -294,6 +385,7 @@ const drawOverlaySelection = useCallback(
         ref={overlayRef}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
+        onPointerOut={handlePointerOut}   // optional, but helps across browsers
         onPointerDown={handlePointerDown}
         style={{
           position: "absolute",
