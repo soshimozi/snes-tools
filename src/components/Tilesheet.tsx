@@ -1,7 +1,7 @@
 "use client";
 
 import { SCALE } from "@/app/constants";
-import { getCheckerPattern, indexToRowCol } from "@/Helpers";
+import { getCheckerPattern, indexToRowCol } from "@/misc/Helpers";
 import { Contextable, PasteMode } from "@/state/EditorDoc";
 import { Cell, Region, Tile } from "@/types/EditorTypes";
 import React, { useRef, useCallback, useEffect, useState } from "react";

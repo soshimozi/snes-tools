@@ -1,7 +1,8 @@
 "use client";
 
 import { SCALE } from "@/app/constants";
-import { getCheckerPattern } from "@/Helpers";
+import { getCheckerPattern } from "@/misc/Helpers";
+import { drawSelectionOverlay } from "@/misc/selectionOverlay";
 import { MetaSpriteEntry, Region, SelectedTiles, Sheet, Tile } from "@/types/EditorTypes";
 import React, { useRef, useCallback, useEffect, useState } from "react";
 
@@ -16,7 +17,7 @@ export function MetaSpriteEditor(
     palettes: string[][];
     tilesheets: Sheet[];
     selectedRegion?: Region;
-    selected?: MetaSpriteEntry;
+    selected: MetaSpriteEntry[];
     highlightSelected?: boolean;
     drawGrid?: boolean;
     selectedTiles?: SelectedTiles;  // <-- NEW
@@ -202,18 +203,22 @@ export function MetaSpriteEditor(
     });
 
     // selected border (base layer, so overlay can sit on top)
-    if (highlightSelected && selected) {
-      const tileW = 8 * scale;
-      const tileH = 8 * scale;
-      const positions = wrappedPositions(selected.x, selected.y, tileW, tileH, WRAP_W, WRAP_H);
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeStyle = "rgba(0, 150, 255, 1)";
-      for (const [bx, by] of positions) {
-        ctx.strokeRect(bx, by, tileW, tileH);
-      }
-      ctx.setLineDash([]);
-    }
+    // if (highlightSelected && selected) {
+    //   const tileW = 8 * scale;
+    //   const tileH = 8 * scale;
+    //   const positions = wrappedPositions(selected.x, selected.y, tileW, tileH, WRAP_W, WRAP_H);
+    //   ctx.lineWidth = 2;
+    //   ctx.setLineDash([6, 4]);
+    //   ctx.strokeStyle = "rgba(0, 150, 255, 1)";
+    //   for (const [bx, by] of positions) {
+    //     ctx.strokeRect(bx, by, tileW, tileH);
+    //   }
+    //   ctx.setLineDash([]);
+    // }
+    if (highlightSelected && selected?.length) {
+      const cellSize = 8 * scale;
+      drawSelectionOverlay(ctx, selected, cellSize, true);
+    }    
 
     // grid (base layer)
     if (drawGrid) {
@@ -295,23 +300,11 @@ const drawOverlaySelection = useCallback(
         }
 
         octx.restore();
-
-        // optional outline for the preview block
-        const w = (selectedTiles.tileIndices[0]?.length ?? 0) * cellSize;
-        const h = (selectedTiles.tileIndices.length) * cellSize;
-        if (w && h) {
-          // octx.lineWidth = 1;
-          // octx.strokeStyle = "#00E0FF";
-          // octx.setLineDash([4, 3]);
-          // octx.strokeRect(anchor.x + 0.5, anchor.y + 0.5, w - 1, h - 1);
-          // octx.setLineDash([]);
-        }
       }
     }
 
     // (a) draw selectedRegion if provided
     if (selectedRegion && xy) {
-      console.log('highlightRegion: ', selectedRegion);
 
       const { x, y, w, h } = regionToPixelRect({ startRow: xy.y, startCol: xy.x, cols: selectedRegion.cols, rows: selectedRegion.rows });
 

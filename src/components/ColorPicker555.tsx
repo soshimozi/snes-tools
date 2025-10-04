@@ -1,6 +1,6 @@
 "use client";
 
-import { parseHexColor, toHexColor } from "@/Helpers";
+import { parseHexColor, toHexColor } from "@/misc/Helpers";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 /* ---------- helpers ---------- */
