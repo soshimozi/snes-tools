@@ -27,7 +27,7 @@ import {
   producePasteIntoTilesheet,
   savePalettes,
   tileIndex
-} from "@/Helpers";
+} from "@/misc/Helpers";
 
 import { SCALE, TILE_H, TILE_W } from "@/app/constants";
 import { ChevronButton } from "./ChevronButton";
@@ -673,7 +673,7 @@ export default function SNESpriteEditor() {
                       selectedRegion={s.selectedTileRegion}
                       palettes={s.palettes}
                       highlightSelected={s.highlightSelected}
-                      selected={selectedEntries[0]}
+                      selected={selectedEntries}
                       onClick={updateMetasprite}
                       transparentIndex0={s.showIndex0Transparency}
                     />

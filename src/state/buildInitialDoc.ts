@@ -1,6 +1,6 @@
-import { Palettes } from "@/Palettes";
+import { Palettes } from "@/misc/Palettes";
 import { EditorDoc } from "./EditorDoc";
-import { makeTiles } from "@/Helpers";
+import { makeTiles } from "@/misc/Helpers";
 
 export function buildInitialDoc(): EditorDoc {
   const metasprites = Array.from({ length: 100 }, (_, i) => ({

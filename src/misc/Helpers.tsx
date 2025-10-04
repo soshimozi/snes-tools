@@ -1,6 +1,6 @@
-import { TILE_H, TILE_W } from "./app/constants";
-import { PasteMode, PasteOptions } from "./state/EditorDoc";
-import { Cell, Palette, Region, Tile, TileRegionPayload } from "./types/EditorTypes";
+import { TILE_H, TILE_W } from "../app/constants";
+import { PasteMode, PasteOptions } from "../state/EditorDoc";
+import { Cell, Palette, Region, Tile, TileRegionPayload } from "../types/EditorTypes";
 
 // Reverse: given index → (row, col)
 // Forward (for reference)
