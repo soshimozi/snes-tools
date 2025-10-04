@@ -302,6 +302,18 @@ export default function SNESpriteEditor() {
     });
   };
 
+  const idInSelected = (selectedId: string, d: EditorDoc):boolean => {
+    return !!(d.selectedIds.find((id) => id === selectedId))
+  }
+  
+  const deleteSelected = () => {
+    update(d => {
+      d.metasprites[d.currentMetasprite].entries = d.metasprites[d.currentMetasprite].entries.filter((e) => !idInSelected(e.id, d));
+      d.selectedIds = [];
+      return d;
+    });
+  };  
+
   // ---------- Palette handlers ----------
   function bgr555ToRgb(bgr555: number): { r: number; g: number; b: number } {
     const b5 = (bgr555 >> 10) & 31, g5 = (bgr555 >> 5) & 31, r5 = bgr555 & 31;
@@ -721,7 +733,10 @@ export default function SNESpriteEditor() {
                       <div className="flex flex-col w-130 gap-1">
                         <div className="flex flex-row justify-between items-center">
                           <span className="mt-1 text-sm">List of Sprites {currentMetaSpriteEntries.length}</span>
+                          <div className="flex gap-2">
+                          <StyledButton width={35} className="h-5" onClick={deleteSelected}>Clear Selected</StyledButton>
                           <StyledButton width={35} className="h-5" onClick={deleteAll}>Clear</StyledButton>
+                          </div>
                         </div>
 
                         <SelectList
