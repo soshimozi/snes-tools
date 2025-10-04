@@ -81,8 +81,8 @@ export function Tilesheet({
     const right = Math.max(a.col, b.col);
     const bottom = Math.max(a.row, b.row);
     return {
-      col: left,
-      row: top,
+      startCol: left,
+      startRow: top,
       cols: (right - left) + 1,
       rows: (bottom - top) + 1,
     };
@@ -152,8 +152,8 @@ export function Tilesheet({
     }
 
     const paintRegion = (region: Region, styles?: { stroke?: string; fill?: string }) => {
-      const x = region.col * cellSize;
-      const y = region.row * cellSize;
+      const x = region.startCol * cellSize;
+      const y = region.startRow * cellSize;
       const w = region.cols * cellSize;
       const h = region.rows * cellSize;
       if (styles?.fill) {
