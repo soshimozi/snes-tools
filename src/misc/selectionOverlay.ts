@@ -12,7 +12,7 @@ function strokeRectSolid(ctx:CanvasRenderingContext2D,x:number,y:number,w:number
   ctx.strokeRect(Math.round(x)+0.5, Math.round(y)+0.5, Math.round(w)-1, Math.round(h)-1);
   ctx.restore();
 }
-function fillTint(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,rgba="rgba(59,130,246,0.07)"){
+function fillTint(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,rgba="rgba(59,130,246,0.17)"){
   ctx.save(); ctx.fillStyle=rgba; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); ctx.restore();
 }
 function isOffGrid(e:MetaSpriteEntry, cellSize:number, tol=0.5){
@@ -37,7 +37,7 @@ export function drawSelectionOverlay(
 
   // A) per-tile at true positions (shows nudges)
   for (const e of selectedEntries) {
-    fillTint(ctx, e.x, e.y, cellSize, cellSize, "rgba(59,130,246,0.4)");
+    fillTint(ctx, e.x, e.y, cellSize, cellSize);
     strokeRectDashed(ctx, e.x, e.y, cellSize, cellSize, [4,3], 2, "#3b82f6");
     if (isOffGrid(e, cellSize)) drawOffGridMarker(ctx, e, cellSize);
   }

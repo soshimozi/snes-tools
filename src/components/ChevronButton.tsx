@@ -9,9 +9,13 @@ import {
   faChevronDown,
   faRotateBackward,
   faRotateForward,
+  faLeftRight,
+  faUpDown,
+  faArrowsUpDown,
+  faArrowsLeftRight,
 } from "@fortawesome/free-solid-svg-icons";
 
-type Direction = "right" | "left" | "up" | "down" | "rotate-ccw" | "rotate-cw";
+type Direction = "right" | "left" | "up" | "down" | "rotate-ccw" | "rotate-cw" | "flip-horizontal" | "flip-vertical";
 
 const iconFor: Record<Direction, any> = {
   right: faChevronRight,
@@ -19,7 +23,9 @@ const iconFor: Record<Direction, any> = {
   up: faChevronUp,
   down: faChevronDown,
   "rotate-ccw": faRotateBackward,
-  "rotate-cw": faRotateForward
+  "rotate-cw": faRotateForward,
+  "flip-horizontal": faArrowsLeftRight,
+  "flip-vertical": faArrowsUpDown
 };
 
 type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {

@@ -1,4 +1,4 @@
-import { Palettes } from "@/misc/Palettes";
+import { Palettes } from "@/Palettes";
 import { EditorDoc } from "./EditorDoc";
 import { makeTiles } from "@/misc/Helpers";
 
