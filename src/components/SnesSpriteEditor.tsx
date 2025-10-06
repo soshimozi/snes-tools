@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Fragment, use, useCallback, useEffect, useMemo, useState } from "react";
+import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DraggableWindow } from "./DraggableWindow";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -9,7 +9,8 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 import {
-  Cell, EditorSettingsBridgeMutable, MetaSpriteEntry, Region, SelectedTiles, Tile} from "@/types/EditorTypes";
+  Cell, EditorSettingsBridgeMutable, MetaSpriteEntry, Region, SelectedTiles, Tile
+} from "@/types/EditorTypes";
 
 import { v4 as uuid } from "uuid";
 import { SelectList } from "./SingleSelectList";
@@ -47,16 +48,29 @@ import { EditorDoc, PasteMode, toolIcon } from "@/state/EditorDoc";
 import ColorChannelInput from "./ColorChannelSlider";
 import Modal from "./Modal";
 
-const STORAGE_KEY = "snes-editor@v1";
-const TILE_EDITOR_SCALE = 48;
+// ---------------- NEW: editor sizing caps ----------------
+const MAX_VIEWPORT_PX = 512; // max pixels on the larger dimension of the selection
+const MIN_CELL = 10;         // min per-pixel cell size for visibility
 
+const STORAGE_KEY = "snes-editor@v1";
+
+// ---------------- same checkerboard util ----------------
 function checkerboardStyle(
+  cellPx: number,
   light = "#eeeeee",
   dark = "#bbbbbb"
 ): React.CSSProperties {
-  // Reasonable square size based on the pixel cell size
-  const s = Math.max(2, Math.floor(96 / 2));
+  console.log("checkerboardStyle", cellPx);
+
+  // tile the pattern at half a pixel-cell for a nice density
+  const s = Math.max(2, Math.floor(cellPx / 2));
   const offset = Math.floor(s / 2);
+
+  if(cellPx <= 16) {
+    return { backgroundColor: 
+      "transparent"
+    }
+  }
 
   return {
     backgroundColor: light,
@@ -69,7 +83,7 @@ function checkerboardStyle(
       .join(", ")
       .replaceAll("VAR_DARK", dark),
     backgroundSize: `${s}px ${s}px`,
-    backgroundPosition: `0 0, 0 ${offset}px, ${offset}px -${offset}px, -${offset}px 0px`
+    backgroundPosition: `0 0, 0 ${offset}px, ${offset}px -${offset}px, -${offset}px 0px`,
   };
 }
 
@@ -86,27 +100,31 @@ export default function SNESpriteEditor() {
     hydrated
   } = useUndoableState<EditorDoc>(buildInitialDoc, { storageKey: STORAGE_KEY, limit: 200 });
 
-  const isStrokingRef = React.useRef(false);
+  // ---------------- NEW: selection-apply toggle ----------------
+  const [paintAcrossSelection, setPaintAcrossSelection] = useState(false);
+
+  const isStrokingRef = useRef(false);
+  // ---------------- NEW: remember which tile we last edited (for single-tile transforms) -------------
+  const lastEditedTileIndexRef = useRef<number | null>(null);
+
   const [showSettings, setShowSettings] = useState(false);
 
   // --- Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
-
-
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
       if (k === "z") { e.preventDefault(); if (canUndo) undo(); }
       else if (k === "y") { e.preventDefault(); if (canRedo) redo(); }
-      else if (k === "b" && e.altKey) { e.preventDefault; update(d => (d.tool = "brush", d))}
-      else if (k === "f" && e.altKey) { e.preventDefault; update(d => (d.tool = "fill", d))}
-      else if (k === "p" && e.altKey) { e.preventDefault; update(d => (d.tool = "picker", d))}
-      else if (k === "d" && e.altKey) { e.preventDefault; update(d => (d.tool = "eraser", d))}
+      else if (k === "b" && e.altKey) { e.preventDefault; update(d => (d.tool = "brush", d)); }
+      else if (k === "f" && e.altKey) { e.preventDefault; update(d => (d.tool = "fill", d)); }
+      else if (k === "p" && e.altKey) { e.preventDefault; update(d => (d.tool = "picker", d)); }
+      else if (k === "d" && e.altKey) { e.preventDefault; update(d => (d.tool = "eraser", d)); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, canUndo, canRedo]);
+  }, [undo, redo, canUndo, canRedo, update]);
 
   // Context menu disable for right-click erase
   useEffect(() => {
@@ -131,7 +149,7 @@ export default function SNESpriteEditor() {
         lines: [
           `Tile: ${entry.tileIndex}, Sheet: ${entry.tileSheetIndex}, Palette: ${entry.paletteIndex}, x: ${entry.x}, y: ${entry.y}`,
         ],
-        title: 
+        title:
           `Tile: ${entry.tileIndex}, Sheet: ${entry.tileSheetIndex}, Palette: ${entry.paletteIndex}, x: ${entry.x}, y: ${entry.y}, h: ${entry.h ? 1 : 0}, v: ${entry.v ? 1 : 0}, r: ${entry.r}`,
       })),
     [currentMetaSpriteEntries]
@@ -150,27 +168,60 @@ export default function SNESpriteEditor() {
   const currentGreen = currentColorValue?.g;
   const currentBlue = currentColorValue?.b;
 
-  // ---------- Painting ops ----------
-  const setPixel = useCallback((x: number, y: number, value: number) => {
+  // ---------- utils ----------
+  const cloneTilesArray = (tiles: Tile[]) => tiles.map(t => t.map(r => r.slice()));
+
+  // ---------------- NEW: region grid (which tiles are in the selection) ----------------
+  const tileGrid = useMemo(() => {
+    // Region first
+    if (s.selectedTileRegion) {
+      const r = s.selectedTileRegion;
+      const grid: number[][] = [];
+      for (let y = 0; y < r.rows; y++) {
+        const row: number[] = [];
+        for (let x = 0; x < r.cols; x++) {
+          row.push(tileIndex(r.startRow + y, r.startCol + x));
+        }
+        grid.push(row);
+      }
+      return grid;
+    }
+
+    // Single cell
+    if (s.selectedTileCell) {
+      const idx = tileIndex(s.selectedTileCell.row ?? 0, s.selectedTileCell.col ?? 0);
+      return [[idx]];
+    }
+
+    // Fallback: current tile
+    return [[s.currentTile]];
+  }, [s.selectedTileRegion, s.selectedTileCell, s.currentTile]);
+
+  // ---------------- NEW: region dimensions + dynamic pixel cell size ----------------
+  const regionCols = tileGrid[0]?.length ?? 1;
+  const regionRows = tileGrid.length || 1;
+  const maxCells = 8 * Math.max(regionCols, regionRows);
+  const dynamicCell = Math.max(MIN_CELL, Math.floor(MAX_VIEWPORT_PX / Math.max(1, maxCells)));
+
+  // ---------- Painting ops (tile-aware) ----------
+  const setPixelAt = useCallback((tileIndex0: number, x: number, y: number, value: number) => {
     mutate(d => {
       const sheet = d.tilesheets[d.currentTilesheet];
-      const nextTiles = sheet.tiles.map(t => t.map(row => row.slice()));
-      nextTiles[d.currentTile][y][x] = value & 0xF;
+      const nextTiles = cloneTilesArray(sheet.tiles);
+      nextTiles[tileIndex0][y][x] = value & 0xF;
       sheet.tiles = nextTiles;
       return d;
     });
   }, [mutate]);
 
-  const floodFill = useCallback((x: number, y: number, _target: number | undefined, replacementRaw: number) => {
+  const floodFillTile = useCallback((tileIndex0: number, x: number, y: number, _target: number | undefined, replacementRaw: number) => {
     update(d => {
-      const ts = d.currentTilesheet, tIdx = d.currentTile;
       const replacement = replacementRaw & 0xF;
       const width = TILE_W, height = TILE_H;
-
-      const next = d.tilesheets[ts].tiles.map(t => t.map(r => r.slice()));
+      const next = cloneTilesArray(d.tilesheets[d.currentTilesheet].tiles);
       if (x < 0 || y < 0 || x >= width || y >= height) return d;
 
-      const target = next[tIdx][y][x] & 0xF;
+      const target = next[tileIndex0][y][x] & 0xF;
       if (target === replacement) return d;
 
       const stack: [number, number][] = [[x, y]];
@@ -181,49 +232,48 @@ export default function SNESpriteEditor() {
         if (cx < 0 || cy < 0 || cx >= width || cy >= height) continue;
         const key = `${cx},${cy}`;
         if (seen.has(key)) continue;
-        if ((next[tIdx][cy][cx] & 0xF) !== target) continue;
+        if ((next[tileIndex0][cy][cx] & 0xF) !== target) continue;
         seen.add(key);
-        next[tIdx][cy][cx] = replacement;
+        next[tileIndex0][cy][cx] = replacement;
         stack.push([cx+1,cy], [cx-1,cy], [cx,cy+1], [cx,cy-1]);
       }
 
-      d.tilesheets[ts].tiles = next;
+      d.tilesheets[d.currentTilesheet].tiles = next;
       return d;
     });
   }, [update]);
 
-  const transformTile = useCallback((fn: (src: Tile) => Tile) => {
+  const transformTileAt = useCallback((tileIndex0: number, fn: (src: Tile) => Tile) => {
     update(d => {
-      const ts = d.currentTilesheet, tIdx = d.currentTile;
-      const next = d.tilesheets[ts].tiles.map(t => t.map(r => r.slice()));
-      next[tIdx] = fn(next[tIdx]);
-      d.tilesheets[ts].tiles = next;
+      const next = cloneTilesArray(d.tilesheets[d.currentTilesheet].tiles);
+      next[tileIndex0] = fn(next[tileIndex0]);
+      d.tilesheets[d.currentTilesheet].tiles = next;
       return d;
     });
   }, [update]);
 
-  const flipTileH = () => transformTile((src) => {
+  // ---------- Pixel transforms ----------
+  const flipTileHFn = (src: Tile) => {
     const out = makeBlankTile();
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[y][7 - x] = src[y][x];
     return out;
-  });
-  const flipTileV = () => transformTile((src) => {
+  };
+  const flipTileVFn = (src: Tile) => {
     const out = makeBlankTile();
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[7 - y][x] = src[y][x];
     return out;
-  });
-  const rotateTileCW = () => transformTile((src) => {
+  };
+  const rotateTileCwFn = (src: Tile) => {
     const out = makeBlankTile();
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[y][x] = src[7 - x][y];
     return out;
-  });
-  const rotateTileCCW = () => transformTile((src) => {
+  };
+  const rotateTileCcwFn = (src: Tile) => {
     const out = makeBlankTile();
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[y][x] = src[x][7 - y];
     return out;
-  });
-
-  const shiftTile = (src: Tile, dx: number, dy: number) => {
+  };
+  const shiftTileFn = (src: Tile, dx: number, dy: number) => {
     const wrap8 = (n: number) => (((n % 8) + 8) % 8);
     const out = makeBlankTile();
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
@@ -233,7 +283,16 @@ export default function SNESpriteEditor() {
     return out;
   };
 
-  // ---------- Metasprite ops ----------
+  // ---------- Helpers for selection iteration ----------
+  const forEachSelectedTile = (fn: (tileIndex0: number) => void) => {
+    for (let gy = 0; gy < regionRows; gy++) {
+      for (let gx = 0; gx < regionCols; gx++) {
+        fn(tileGrid[gy][gx]);
+      }
+    }
+  };
+
+  // ---------- Metasprite ops (unchanged except kept your logic) ----------
   const shiftMetaSprite = (dx: number, dy: number) => {
     const scale = SCALE * 8 * 16;
     const wrap = (n: number) => (((n % scale) + scale) % scale);
@@ -306,25 +365,24 @@ export default function SNESpriteEditor() {
     });
   };
 
-
   const clearSelected = () => {
     update(d => {
       d.selectedIds = [];
       return d;
     });
-  };  
+  };
 
-  const idInSelected = (selectedId: string, d: EditorDoc):boolean => {
-    return !!(d.selectedIds.find((id) => id === selectedId))
-  }
-  
+  const idInSelected = (selectedId: string, d: EditorDoc): boolean => {
+    return !!(d.selectedIds.find((id) => id === selectedId));
+  };
+
   const deleteSelected = () => {
     update(d => {
       d.metasprites[d.currentMetasprite].entries = d.metasprites[d.currentMetasprite].entries.filter((e) => !idInSelected(e.id, d));
       d.selectedIds = [];
       return d;
     });
-  };  
+  };
 
   // ---------- Palette handlers ----------
   function bgr555ToRgb(bgr555: number): { r: number; g: number; b: number } {
@@ -429,7 +487,7 @@ export default function SNESpriteEditor() {
           ...newEntries
         ];
 
-        d.selectedIds = newEntries.map(e => e.id)
+        d.selectedIds = newEntries.map(e => e.id);
         return d;
       }
 
@@ -443,6 +501,15 @@ export default function SNESpriteEditor() {
       return d;
     });
   };
+
+  function selectRegion(region?: Region): void {
+    update(d => { 
+      d.selectedTileRegion = region;
+      d.selectedTileCell = null;
+      d.showSpriteEditor = !!region;
+      return d;
+    });
+  }
 
   function selectTile(selected: Cell): void {
     update(d => {
@@ -479,7 +546,6 @@ export default function SNESpriteEditor() {
     });
   };
 
-
   const handlePasteSpecial = (at: Cell, mode: PasteMode, includeZeroSrc = false) => {
     if (!s.clipboard || !at) return;
     update(d => {
@@ -493,8 +559,7 @@ export default function SNESpriteEditor() {
       );
       return d;
     });
-};
-
+  };
 
   const handleDelete = (region?: Region, cell?: Cell) => {
     update(d => {
@@ -507,72 +572,39 @@ export default function SNESpriteEditor() {
     });
   };
 
-  const convertUint16ArrayToHexPalettes = (bgrPalettes: Uint16Array): string[][] => {
-    const palettes: string[][] = [];
-    for (let i = 0; i < bgrPalettes.length; i += 16) {
-      const palette: string[] = [];
-      for (let j = 0; j < 16; j++) {
-        
-        const bgr555 = bgrPalettes[i + j] & 0x7FFF; // auto-clear bit 15
-        const { r, g, b } = bgr555ToRgb(bgr555);
-        const hexColor = `#${(r & 0xf8).toString(16).padStart(2, "0")}${(g & 0xf8).toString(16).padStart(2, "0")}${(b & 0xf8).toString(16).padStart(2, "0")}`;
-
-        palette.push(hexColor);
-      }
-      palettes.push(palette);
-    }
-    return palettes;
-  }
-
-  const convertUint16ArrayToBGR555Palettes = (bgrPalettes: Uint16Array): string[][] => {
-    const palettes: string[][] = [];
-    for (let i = 0; i < bgrPalettes.length; i += 16) {
-      const palette: string[] = [];
-      for (let j = 0; j < 16; j++) {
-        
-        const bgr555 = bgrPalettes[i + j] & 0x7FFF; // auto-clear bit 15
-        const hexColor = bgr555.toString(16).padStart(4, "0");
-
-        palette.push(hexColor);
-      }
-      palettes.push(palette);
-    }
-    return palettes;
-  }
-
   // ---------- Drawer / Menu ----------
   const onPick = useCallback((node: MenuNode) => {
-    console.log("Picked menu node", node);
-
-    if(node.id === "pal-load-full") {
-      importAllPalettes(true, (palettes)=> {
-        if(palettes) {
+    if (node.id === "pal-load-full") {
+      importAllPalettes(true, (palettes) => {
+        if (palettes) {
           update(d => {
-
             d.palettes = convertUint16ArrayToHexPalettes(palettes);
             d.bgrPalettes = convertUint16ArrayToBGR555Palettes(palettes);
-
             return d;
           });
         }
       });
-    } else if(node.id ===  "pal-save-full") {
-      saveBGR555Palettes(`${s.exportPrefixes?.palette ?? "default_"}full.pal`,  s.bgrPalettes, true);
-    } else if(node.id ===  "pal-save-cur-full") {
+    } else if (node.id === "pal-save-full") {
+      saveBGR555Palettes(`${s.exportPrefixes?.palette ?? "default_"}full.pal`, s.bgrPalettes, true);
+    } else if (node.id === "pal-save-cur-full") {
       saveBGR555Palette(`${s.exportPrefixes?.palette ?? "default_"}${s.currentPalette}.pal`, s.bgrPalettes[s.currentPalette], true);
-    } else if(node.id === "sprite") {
-      mutate(d=>{
-          if (d.selectedTileCell) d.showSpriteEditor = true;
-          return d;
+    } else if (node.id === "sprite") {
+      console.log("Open sprite editor", s.selectedTileCell, s.selectedTileRegion);
+
+      if (!s.selectedTileCell && !s.selectedTileRegion) return;
+
+      mutate(d => {
+        d.showSpriteEditor = true;
+        return d;
       });
-    } else if(node.id === "settings"){
+    } else if (node.id === "settings") {
       setShowSettings(true);
-    } else if(node.id === "pal-load-16") {
-      importSinglePalette(true, (palette)=> {
-        if(palette) {
+    } else if (node.id === "pal-load-16") {
+      importSinglePalette(true, (palette) => {
+        if (palette) {
           update(d => {
             const filtered = d.palettes.filter((_, i) => i !== d.currentPalette);
-            filtered.splice(d.currentPalette, 0, convertUint16ArrayToHexPalettes(palette)[0])
+            filtered.splice(d.currentPalette, 0, convertUint16ArrayToHexPalettes(palette)[0]);
             const filteredBgr = d.bgrPalettes.filter((_, i) => i !== d.currentPalette);
             filteredBgr.splice(d.currentPalette, 0, convertUint16ArrayToBGR555Palettes(palette)[0]);
 
@@ -585,80 +617,108 @@ export default function SNESpriteEditor() {
     }
 
     mutate(d => (d.drawerOpen = false, d));
-
-  }, [mutate, s.bgrPalettes, s.exportPrefixes, s.currentPalette, update]);
+  }, [mutate, s.bgrPalettes, s.exportPrefixes, s.currentPalette, s.selectedTileCell, s.selectedTileRegion, update]);
 
   // ---------- Palette view ----------
   const paletteView = useMemo(
     () => (
-            <div className="flex flex-col gap-2">
-
-    {s.palettes.map((pal, palIndex) => (
-
-      <div key={palIndex} className="flex flex-row">
-        {pal.map((hex, i) => (
-          <button
-            key={i}
-            onClick={() => update(d => { d.currentColor = i; d.currentPalette = palIndex; return d; })}
-            className={`select-none h-6 w-6 rounded-sm border border-white-900 ${hydrated && s.currentPalette === palIndex && s.currentColor === i ? "ring-1 ring-offset-1 ring-yellow-500" : ""}`}
-            style={{ background: hex }}
-            title={`Index ${i}`}
-          />
+      <div className="flex flex-col gap-2">
+        {s.palettes.map((pal, palIndex) => (
+          <div key={palIndex} className="flex flex-row">
+            {pal.map((hex, i) => (
+              <button
+                key={i}
+                onClick={() => update(d => { d.currentColor = i; d.currentPalette = palIndex; return d; })}
+                className={`select-none h-6 w-6 rounded-sm border border-white-900 ${hydrated && s.currentPalette === palIndex && s.currentColor === i ? "ring-1 ring-offset-1 ring-yellow-500" : ""}`}
+                style={{ background: hex }}
+                title={`Index ${i}`}
+              />
+            ))}
+          </div>
         ))}
       </div>
-    ))}
-    </div>),
-    [s.palettes, s.currentPalette, s.currentColor, update]
+    ),
+    [s.palettes, s.currentPalette, s.currentColor, update, hydrated]
   );
 
   const currentPalleteIndex = useMemo(() => {
-    if(s.palettes.length === 0) return 0;
+    if (s.palettes.length === 0) return 0;
     return Math.min(s.currentPalette, s.palettes.length - 1);
   }, [s.palettes, s.currentPalette]);
 
   const currentPalette = useMemo(() => {
-    if(s.palettes.length === 0) return [];
+    if (s.palettes.length === 0) return [];
     return s.palettes[currentPalleteIndex];
-  }, [s.palettes, currentPalleteIndex]); 
+  }, [s.palettes, currentPalleteIndex]);
 
-  
-
-  // ---------- Mouse interactions for pixel painting ----------
-  const onCellDown = (x: number, y: number) => (e: React.MouseEvent) => {
+  // ---------- Mouse interactions for pixel painting (tile-aware) ----------
+  const onPixelDown = (tileIndex0: number, px: number, py: number) => (e: React.MouseEvent) => {
     e.preventDefault();
 
     isStrokingRef.current = true;
+    lastEditedTileIndexRef.current = tileIndex0; // remember for transforms
     checkpoint();
 
-    if (e.button === 2 || e.buttons === 2) {
-      setPixel(x, y, 0);
+    const rightClick = (e.button === 2 || e.buttons === 2);
+
+    if (rightClick || s.tool === "eraser") {
+      if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, 0));
+      else setPixelAt(tileIndex0, px, py, 0);
       return;
     }
+
     if (s.tool === "picker") {
-      mutate(d => { d.currentColor = tile[y][x]; return d; });
-    } else if (s.tool === "eraser") {
-      setPixel(x, y, 0);
-    } else if (s.tool === "fill") {
-      floodFill(x, y, tile[y][x], s.currentColor);
-    } else {
-      setPixel(x, y, s.currentColor);
+      const picked = s.tilesheets[s.currentTilesheet].tiles[tileIndex0][py][px];
+      mutate(d => { d.currentColor = picked; return d; });
+      return;
     }
+
+    if (s.tool === "fill") {
+      if (paintAcrossSelection) forEachSelectedTile(ti => floodFillTile(ti, px, py, undefined, s.currentColor));
+      else floodFillTile(tileIndex0, px, py, undefined, s.currentColor);
+      return;
+    }
+
+    // brush
+    if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, s.currentColor));
+    else setPixelAt(tileIndex0, px, py, s.currentColor);
   };
-  const onCellMove = (x: number, y: number) => (e: React.MouseEvent) => {
-    if(!isStrokingRef.current) return;
+
+  const onPixelMove = (tileIndex0: number, px: number, py: number) => (e: React.MouseEvent) => {
+    if (!isStrokingRef.current) return;
     if (e.buttons !== 1) return;
-    if (s.tool === "brush") setPixel(x, y, s.currentColor);
-    if (s.tool === "eraser") setPixel(x, y, 0);
+
+    if (s.tool === "brush") {
+      if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, s.currentColor));
+      else setPixelAt(tileIndex0, px, py, s.currentColor);
+    } else if (s.tool === "eraser") {
+      if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, 0));
+      else setPixelAt(tileIndex0, px, py, 0);
+    }
   };
 
   const stopStroke = () => { isStrokingRef.current = false; };
-  //const stopStroke = () => {/* no global state needed now */};
 
-  const selectedTiles = useMemo<SelectedTiles | undefined>(() => {
-    // Prefer a selected region
+  // ---------- Transform buttons (apply to region or last edited tile) ----------
+  const applyTransform = (fn: (src: Tile) => Tile) => {
+    if (paintAcrossSelection) {
+      forEachSelectedTile((ti) => transformTileAt(ti, fn));
+    } else {
+      const ti = lastEditedTileIndexRef.current ?? s.currentTile;
+      transformTileAt(ti, fn);
+    }
+  };
+
+  const shiftPixels = (dx: number, dy: number) => applyTransform((src) => shiftTileFn(src, dx, dy));
+  const rotateTileCW = () => applyTransform(rotateTileCwFn);
+  const rotateTileCCW = () => applyTransform(rotateTileCcwFn);
+  const flipTileH = () => applyTransform(flipTileHFn);
+  const flipTileV = () => applyTransform(flipTileVFn);
+
+  // ---------- SelectedTiles for MetaSpriteEditor (preview block) ----------
+  const selectedTiles: SelectedTiles | undefined = useMemo(() => {
     if (s.selectedTileRegion) {
       const r = s.selectedTileRegion;
-      // Build a rows x cols grid of tile indices from the tilesheet
       const grid: number[][] = [];
       for (let y = 0; y < r.rows; y++) {
         const row: number[] = [];
@@ -671,11 +731,9 @@ export default function SNESpriteEditor() {
         tilesheetIndex: s.currentTilesheet,
         paletteIndex: s.currentPalette,
         tileIndices: grid,
-        opacity: 0.3, // nice for preview; tweak as you like
+        opacity: 0.3,
       };
     }
-
-    // Else, a single selected cell (1x1)
     if (s.selectedTileCell) {
       const idx = tileIndex(s.selectedTileCell.row ?? 0, s.selectedTileCell.col ?? 0);
       return {
@@ -685,10 +743,39 @@ export default function SNESpriteEditor() {
         opacity: 0.9,
       };
     }
-
-    // Nothing selected → no preview block
     return undefined;
-  }, [s.selectedTileRegion, s.selectedTileCell, s.currentTilesheet, s.currentPalette]);  
+  }, [s.selectedTileRegion, s.selectedTileCell, s.currentTilesheet, s.currentPalette]);
+
+  // ---------- Palette conversion helpers ----------
+  const convertUint16ArrayToHexPalettes = (bgrPalettes: Uint16Array): string[][] => {
+    const palettes: string[][] = [];
+    for (let i = 0; i < bgrPalettes.length; i += 16) {
+      const palette: string[] = [];
+      for (let j = 0; j < 16; j++) {
+        const bgr555 = bgrPalettes[i + j] & 0x7FFF; // auto-clear bit 15
+        const { r, g, b } = bgr555ToRgb(bgr555);
+        const hexColor = `#${(r & 0xf8).toString(16).padStart(2, "0")}${(g & 0xf8).toString(16).padStart(2, "0")}${(b & 0xf8).toString(16).padStart(2, "0")}`;
+        palette.push(hexColor);
+      }
+      palettes.push(palette);
+    }
+    return palettes;
+  };
+
+  const convertUint16ArrayToBGR555Palettes = (bgrPalettes: Uint16Array): string[][] => {
+    const palettes: string[][] = [];
+    for (let i = 0; i < bgrPalettes.length; i += 16) {
+      const palette: string[] = [];
+      for (let j = 0; j < 16; j++) {
+        const bgr555 = bgrPalettes[i + j] & 0x7FFF; // auto-clear bit 15
+        const hexColor = bgr555.toString(16).padStart(4, "0");
+        palette.push(hexColor);
+      }
+      palettes.push(palette);
+    }
+    return palettes;
+  };
+
   // ---------- Render ----------
   return (
     <Fragment>
@@ -769,21 +856,21 @@ export default function SNESpriteEditor() {
                           <span className="text-sm font-medium">
                             Sprites ({currentMetaSpriteEntries.length})
                           </span>
-                            <div className="flex flex-row gap-1">
-                              <ChevronButton title="Flip Horizontal" onClick={flipHorizontal} direction="flip-horizontal" />
-                              <ChevronButton title="Flip Vertical" onClick={flipVertical}  direction="flip-vertical"/>
-                              <ChevronButton title="Shift Left"  direction="left"  onClick={() => shiftMetaSprite(-1, 0)} />
-                              <ChevronButton title="Shift Right" direction="right" onClick={() => shiftMetaSprite(1, 0)} />
-                              <ChevronButton title="Shift Up"    direction="up"    onClick={() => shiftMetaSprite(0, -1)} />
-                              <ChevronButton title="Shift Down"  direction="down"  onClick={() => shiftMetaSprite(0, 1)} />
-                              <ChevronButton title="Rotate CCW"  direction="rotate-ccw" onClick={rotateMetaSpriteCCW} />
-                              <ChevronButton title="Rotate CW"   direction="rotate-cw"  onClick={rotateMetaSpriteCW} />
-                            </div>
+                          <div className="flex flex-row gap-1">
+                            <ChevronButton title="Flip Horizontal" onClick={flipHorizontal} direction="flip-horizontal" />
+                            <ChevronButton title="Flip Vertical"  onClick={flipVertical}  direction="flip-vertical"/>
+                            <ChevronButton title="Shift Left"  direction="left"  onClick={() => shiftMetaSprite(-1, 0)} />
+                            <ChevronButton title="Shift Right" direction="right" onClick={() => shiftMetaSprite(1, 0)} />
+                            <ChevronButton title="Shift Up"    direction="up"    onClick={() => shiftMetaSprite(0, -1)} />
+                            <ChevronButton title="Shift Down"  direction="down"  onClick={() => shiftMetaSprite(0, 1)} />
+                            <ChevronButton title="Rotate CCW"  direction="rotate-ccw" onClick={rotateMetaSpriteCCW} />
+                            <ChevronButton title="Rotate CW"   direction="rotate-cw"  onClick={rotateMetaSpriteCW} />
+                          </div>
                         </div>
                         <div className="flex">
                           <SelectList
                             className="w-full"
-                            maxHeight={452}             // rail controls height; container scrolls
+                            maxHeight={452}
                             minHeight={452}
                             options={options}
                             values={s.selectedIds}
@@ -820,80 +907,77 @@ export default function SNESpriteEditor() {
                             }}
                           />
                         </div>
-                          <div className="flex justify-center gap-[6px] items-center mt-1 ml-1 mr-2">
-                            <StyledButton width={35} className="h-6" onClick={clearSelected}>
-                              Clear Selected
-                            </StyledButton>
-                            <StyledButton width={35} className="h-6" onClick={deleteSelected}>
-                              Delete Selected
-                            </StyledButton>
-                            <StyledButton width={35} className="h-6" onClick={deleteAll}>
-                              Delete All
-                            </StyledButton>
-                          </div>
+                        <div className="flex justify-center gap-[6px] items-center mt-1 ml-1 mr-2">
+                          <StyledButton width={35} className="h-6" onClick={clearSelected}>
+                            Clear Selected
+                          </StyledButton>
+                          <StyledButton width={35} className="h-6" onClick={deleteSelected}>
+                            Delete Selected
+                          </StyledButton>
+                          <StyledButton width={35} className="h-6" onClick={deleteAll}>
+                            Delete All
+                          </StyledButton>
+                        </div>
 
                       </aside>
                       <div className="min-w-0 min-h-0 overflow-auto">
-                      {/* Canvas */}
-                      <MetaSpriteEditor
-                        entries={currentMetaSpriteEntries}
-                        tilesheets={s.tilesheets}
-                        drawGrid={s.drawGrid}
-                        selectedTiles={selectedTiles}
-                        selectedRegion={s.selectedTileRegion}
-                        palettes={s.palettes}
-                        highlightSelected={s.highlightSelected}
-                        selected={selectedEntries}
-                        onClick={updateMetasprite}
-                        transparentIndex0={s.showIndex0Transparency}
-                      />
+                        {/* Canvas */}
+                        <MetaSpriteEditor
+                          entries={currentMetaSpriteEntries}
+                          tilesheets={s.tilesheets}
+                          drawGrid={s.drawGrid}
+                          selectedTiles={selectedTiles}
+                          selectedRegion={s.selectedTileRegion}
+                          palettes={s.palettes}
+                          highlightSelected={s.highlightSelected}
+                          selected={selectedEntries}
+                          onClick={updateMetasprite}
+                          transparentIndex0={s.showIndex0Transparency}
+                        />
                       </div>
 
                     </div>
                   </div>
                 </div>
 
-
                 <div className="flex flex-col">
                   <div className="flex flex-row justify-between items-center">
-                  <div className="text-sm font-bold">Palette</div>
-                  <div className="text-xs">Selected Palette ({s.currentPalette})</div>
+                    <div className="text-sm font-bold">Palette</div>
+                    <div className="text-xs">Selected Palette ({s.currentPalette})</div>
                   </div>
                   <div className="flex flex-row gap-5 mt-1 justify-start rounded-lg border-2 border-blue-400 p-1">
-
                     {paletteView}
-
                     <div className="flex flex-col">
-                        <div className="flex flex-row gap-5">
-                          <div className="flex">
-                            <ColorPicker555
-                              value={s.palettes[s.currentPalette][s.currentColor]}
-                              onColorChange={onColorPickerChange}
-                            />
-                          </div>
-                          <div className="flex flex-row items-center gap-2">
-                            <label>HEX</label>
-                            <input
-                              type="text"
-                              placeholder="0000"
-                              value={s.bgrPalettes[s.currentPalette][s.currentColor]}
-                              onChange={handleBGRChange}
-                              className="w-28 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
-                              title="Enter 4 hex digits (bit15 auto-cleared)"
-                            />
-                            <span className="text-xs text-slate-500">(BGR555)</span>
-                          </div>
+                      <div className="flex flex-row gap-5">
+                        <div className="flex">
+                          <ColorPicker555
+                            value={s.palettes[s.currentPalette][s.currentColor]}
+                            onColorChange={onColorPickerChange}
+                          />
                         </div>
+                        <div className="flex flex-row items-center gap-2">
+                          <label>HEX</label>
+                          <input
+                            type="text"
+                            placeholder="0000"
+                            value={s.bgrPalettes[s.currentPalette][s.currentColor]}
+                            onChange={handleBGRChange}
+                            className="w-28 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                            title="Enter 4 hex digits (bit15 auto-cleared)"
+                          />
+                          <span className="text-xs text-slate-500">(BGR555)</span>
+                        </div>
+                      </div>
 
-                        <div className="flex flex-row mt-1 justify-between w-full">
-                          <ColorChannelInput label="B" value={currentBlue} onChange={handleChannel("b")} />
-                          <ColorChannelInput label="G" value={currentGreen} onChange={handleChannel("g")} />
-                          <ColorChannelInput label="R" value={currentRed} onChange={handleChannel("r")} />
-                        </div>  
-                      </div>            
-                  </div>                
+                      <div className="flex flex-row mt-1 justify-between w-full">
+                        <ColorChannelInput label="B" value={currentBlue} onChange={handleChannel("b")} />
+                        <ColorChannelInput label="G" value={currentGreen} onChange={handleChannel("g")} />
+                        <ColorChannelInput label="R" value={currentRed} onChange={handleChannel("r")} />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-            </div>
+              </div>
 
               {/* Tilesheet column */}
               <div className="flex">
@@ -925,7 +1009,7 @@ export default function SNESpriteEditor() {
                         selectedRegion={s.selectedTileRegion}
                         transparentIndex0={s.showIndex0Transparency}
                         onSelected={selectTile}
-                        onRegionSelected={region => update(d => (d.selectedTileRegion = region, d))}
+                        onRegionSelected={selectRegion}
                         onCopy={({ cell, region }) => handleCopy(region, cell ?? undefined)}
                         onPaste={({ at }) => handlePaste(at)}
                         onPasteSpecial={({ at, mode }) => handlePasteSpecial(at, mode)}
@@ -935,7 +1019,7 @@ export default function SNESpriteEditor() {
                       />
                     </div>
                     <div className="flex justify-end">
-                      {hydrated && s.selectedTileCell &&(
+                      {hydrated && s.selectedTileCell && (
                         <span className="text-xs">
                           Selected Tile: {tileIndex(s.selectedTileCell?.row ?? 0, s.selectedTileCell?.col ?? 0)}
                         </span>
@@ -944,26 +1028,25 @@ export default function SNESpriteEditor() {
                   </div>
                 </div>
               </div>
+
             </div>
           </div>
         </main>
       </div>
 
-      <Modal isOpen={showSettings} title="Settings" 
-        draggable 
-        closeOnBackdropClick 
-        closeOnEsc 
-        onClose={(reason) =>
-          setShowSettings(false)
-        }
+      <Modal isOpen={showSettings} title="Settings"
+        draggable
+        closeOnBackdropClick
+        closeOnEsc
+        onClose={() => setShowSettings(false)}
       >
         <div className="text-black max-w-xl">
           <EditorSettingsBridgeMutable
             doc={s}
-            setDoc={update} // single source of truth
+            setDoc={update}
             className="space-y-6"
           />
-        </div>      
+        </div>
       </Modal>
 
       {/* Tile Editor window */}
@@ -975,65 +1058,96 @@ export default function SNESpriteEditor() {
       >
         <div className="flex flex-col">
           <div className="flex flex-row gap-2">
+
+            {/* ---------------- NEW: Multi-tile canvas ---------------- */}
             <div className="select-none w-fit" onMouseUp={stopStroke} onMouseLeave={stopStroke}>
               <div
                 className="inline-grid"
-                style={{ gridTemplateColumns: `repeat(${TILE_W}, ${TILE_EDITOR_SCALE}px)`, gridTemplateRows: `repeat(${TILE_H}, ${TILE_EDITOR_SCALE}px)` }}
+                style={{
+                  gridTemplateColumns: `repeat(${regionCols * TILE_W}, ${dynamicCell}px)`,
+                  gridTemplateRows:    `repeat(${regionRows * TILE_H}, ${dynamicCell}px)`
+                }}
               >
-                {tile.map((row, y) =>
-                  row.map((pix, x) => { 
-                    
-                    const style =
-                      s.showIndex0Transparency && pix === 0
-                        ? checkerboardStyle() // implied transparency
-                        : { background: s.palettes[s.currentPalette][pix] ?? "#000" };
-                        
-                    const borderColor = 
-                      s.showIndex0Transparency ? "border-yellow-200" 
-                      : "boarder-slate-300";
+                {Array.from({ length: regionRows }).map((_, gy) =>
+                  // Emit 8 scanlines per tile-row (py = 0..7)
+                  Array.from({ length: TILE_H }).flatMap((__, py) =>
+                    // For each scanline, walk across tile columns
+                    Array.from({ length: regionCols }).flatMap((___, gx) => {
+                      const tIndex = tileGrid[gy][gx];
+                      const row = s.tilesheets[s.currentTilesheet].tiles[tIndex][py];
 
-                    return (
-                    <div
-                      key={`${x}-${y}`}
-                      onMouseDown={onCellDown(x, y)}
-                      onMouseMove={onCellMove(x, y)}
-                      className={`border ${borderColor} hover:brightness-95`}
-                      style={style}
-                      title={`(${x},${y}) → ${pix}`}
-                    />
-                  )})
+                      // Emit 8 pixels across this tile scanline (px = 0..7)
+                      return row.map((pix, px) => {
+                        const style =
+                          s.showIndex0Transparency && pix === 0
+                            ? checkerboardStyle(dynamicCell)
+                            : { background: s.palettes[s.currentPalette][pix] ?? "#000" };
+
+                        const borderColor = s.showIndex0Transparency ? "border-yellow-200" : "border-slate-300";
+
+                        return (
+                          <div
+                            key={`gy${gy}-py${py}-gx${gx}-px${px}`}
+                            onMouseDown={onPixelDown(tIndex, px, py)}
+                            onMouseMove={onPixelMove(tIndex, px, py)}
+                            className={`border ${borderColor} hover:brightness-95`}
+                            style={style}
+                            title={`T:${tIndex} (${px},${py}) → ${pix}`}
+                          />
+                        );
+                      });
+                    })
+                  )
                 )}
+              </div>
+
+              {/* ---------------- NEW: UI toggles under canvas ---------------- */}
+              <div className="flex items-center gap-3 mt-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={paintAcrossSelection}
+                    onChange={(e) => setPaintAcrossSelection(e.target.checked)}
+                  />
+                  Apply brush/eraser/fill to all tiles in selection
+                </label>
+                <span className="text-xs text-slate-500">
+                  Region: {regionCols}×{regionRows} • Cell: {dynamicCell}px
+                </span>
               </div>
             </div>
 
+            {/* Tool buttons */}
             <div className="flex flex-col justify-between h-[256px]">
-              {(["brush", "fill", "picker", "eraser"] as const).map(t => (
+              {(["brush", "fill", "picker", "eraser"] as const).map(tl => (
                 <button
-                  key={t}
-                  onClick={() => update(d => (d.tool = t, d))}
-                  className={`p-1 rounded-md w-[48px] h-[48px] text-lg ${s.tool === t ? "bg-blue-600 text-white" : "bg-transparent hover:bg-slate-100"}`}
+                  key={tl}
+                  onClick={() => update(d => (d.tool = tl, d))}
+                  className={`p-1 rounded-md w-[48px] h-[48px] text-lg ${s.tool === tl ? "bg-blue-600 text-white" : "bg-transparent hover:bg-slate-100"}`}
                 >
-                  <FontAwesomeIcon icon={toolIcon[t]} />
+                  <FontAwesomeIcon icon={toolIcon[tl]} />
                 </button>
               ))}
             </div>
           </div>
 
+          {/* Pixel transforms (now selection-aware) */}
           <div className="flex flex-col gap-1 select-none">
             <div className="text-md text-[#222222]">Shift Pixels&nbsp;
               <button title="Shift up" className="p-1 rounded-md hover:bg-blue-100 active:bg-blue-200"
-                      onClick={() => transformTile(src => shiftTile(src, 0, -1))}>
+                      onClick={() => shiftPixels(0, -1)}>
                 <FontAwesomeIcon className="text-[#333333]" icon={faArrowUp} />
               </button>,
               <button title="Shift down" className="p-1 rounded-md hover:bg-blue-100 active:bg-blue-200"
-                      onClick={() => transformTile(src => shiftTile(src, 0, 1))}>
+                      onClick={() => shiftPixels(0, 1)}>
                 <FontAwesomeIcon className="text-[#333333]" icon={faArrowDown} />
               </button>,
               <button title="Shift left" className="p-1 rounded-md hover:bg-blue-100 active:bg-blue-200"
-                      onClick={() => transformTile(src => shiftTile(src, -1, 0))}>
+                      onClick={() => shiftPixels(-1, 0)}>
                 <FontAwesomeIcon className="text-[#333333]" icon={faArrowLeft} />
               </button>,
-              <button title="Shift right" className="p-1 rounded-md hover:bg-blue-100 active:bg-blue-200" onClick={() => transformTile(src => shiftTile(src, 1, 0))}>
+              <button title="Shift right" className="p-1 rounded-md hover:bg-blue-100 active:bg-blue-200"
+                      onClick={() => shiftPixels(1, 0)}>
                 <FontAwesomeIcon className="text-[#333333]" icon={faArrowRight} />
               </button>
             </div>
@@ -1065,4 +1179,3 @@ export default function SNESpriteEditor() {
     </Fragment>
   );
 }
-
