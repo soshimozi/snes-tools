@@ -9,7 +9,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 import {
-  Cell, EditorSettingsBridge, EditorSettingsBridgeMutable, MetaSpriteEntry, Region, SelectedTiles, Tile} from "@/types/EditorTypes";
+  Cell, EditorSettingsBridgeMutable, MetaSpriteEntry, Region, SelectedTiles, Tile} from "@/types/EditorTypes";
 
 import { v4 as uuid } from "uuid";
 import { SelectList } from "./SingleSelectList";
@@ -19,6 +19,7 @@ import { Tilesheet } from "./Tilesheet";
 import {
   extractRegionFromTilesheet,
   extractSingleTileFromTilesheet,
+  importPalette,
   indexToRowCol,
   makeBlankTile,
   moveItem,
@@ -33,14 +34,13 @@ import { SCALE, TILE_H, TILE_W } from "@/app/constants";
 import { ChevronButton } from "./ChevronButton";
 import ColorPicker555 from "./ColorPicker555";
 import StyledButton from "./StyledButton";
-import StyledCheckbox from "./StyledCheckbox";
 import { LeftDrawer } from "./LeftDrawer";
 import { menuTree, type MenuNode } from "./Menu";
 import { DrawerMenu } from "./DrawerMenu";
 
 import { useUndoableState } from "@/hooks/useUndoableState";
 import { buildInitialDoc } from "@/state/buildInitialDoc";
-import { EditorDoc, PasteMode, PasteOptions, toolIcon } from "@/state/EditorDoc";
+import { EditorDoc, PasteMode, toolIcon } from "@/state/EditorDoc";
 import ColorChannelInput from "./ColorChannelSlider";
 import Modal from "./Modal";
 
@@ -48,7 +48,6 @@ const STORAGE_KEY = "snes-editor@v1";
 const TILE_EDITOR_SCALE = 48;
 
 function checkerboardStyle(
-  cellSize: number,
   light = "#eeeeee",
   dark = "#bbbbbb"
 ): React.CSSProperties {
@@ -505,30 +504,90 @@ export default function SNESpriteEditor() {
     });
   };
 
+  const convertUint16ArrayToHexPalettes = (bgrPalettes: Uint16Array): string[][] => {
+    const palettes: string[][] = [];
+    for (let i = 0; i < bgrPalettes.length; i += 16) {
+      const palette: string[] = [];
+      for (let j = 0; j < 16; j++) {
+        
+        const bgr555 = bgrPalettes[i + j] & 0x7FFF; // auto-clear bit 15
+        const { r, g, b } = bgr555ToRgb(bgr555);
+        const hexColor = `#${(r & 0xf8).toString(16).padStart(2, "0")}${(g & 0xf8).toString(16).padStart(2, "0")}${(b & 0xf8).toString(16).padStart(2, "0")}`;
+
+        palette.push(hexColor);
+      }
+      palettes.push(palette);
+    }
+    return palettes;
+  }
+
+  const convertUint16ArrayToBGR555Palettes = (bgrPalettes: Uint16Array): string[][] => {
+    const palettes: string[][] = [];
+    for (let i = 0; i < bgrPalettes.length; i += 16) {
+      const palette: string[] = [];
+      for (let j = 0; j < 16; j++) {
+        
+        const bgr555 = bgrPalettes[i + j] & 0x7FFF; // auto-clear bit 15
+        const hexColor = bgr555.toString(16).padStart(4, "0");
+
+        palette.push(hexColor);
+      }
+      palettes.push(palette);
+    }
+    return palettes;
+  }
+
   // ---------- Drawer / Menu ----------
   const onPick = useCallback((node: MenuNode) => {
-    mutate(d => {
-      switch (node.id) {
-        case "sprite":
-          if (d.selectedTileCell) d.showSpriteEditor = true;
-          break;
-        case "tiles":
-        case "palette":
-          break;
+    console.log("Picked menu node", node);
 
-        case "settings":
-          setShowSettings(true);
-          break;
-        case "meta-export":
-          /* open export modal */
-          break;
-        case "pal-save-full":
-          savePalettes("default.pal", d.palettes, true);
-          break;
-      }
-      d.drawerOpen = false;
-      return d;
-    });
+    if(node.id === "pal-load-full") {
+      importPalette(true, (palettes)=> {
+        if(palettes) {
+          update(d => {
+
+            d.palettes = convertUint16ArrayToHexPalettes(palettes);
+            d.bgrPalettes = convertUint16ArrayToBGR555Palettes(palettes);
+
+            return d;
+          });
+        }
+      });
+      mutate(d => (d.drawerOpen = false, d));
+    } else if(node.id ===  "pal-save-full") {
+      console.log("Saving full palette set", s.bgrPalettes);
+      savePalettes("default.pal",  s.bgrPalettes, true);
+      mutate(d => (d.drawerOpen = false, d));
+    } else if(node.id === "sprite") {
+      mutate(d=>{
+          if (d.selectedTileCell) d.showSpriteEditor = true;
+          d.drawerOpen = false;
+          return d;
+      });
+    } else if(node.id === "settings"){
+      setShowSettings(true);
+      mutate(d => (d.drawerOpen = false, d));
+    }
+
+    // mutate(d => {
+    //   switch (node.id) {
+    //     case "sprite":
+    //       if (d.selectedTileCell) d.showSpriteEditor = true;
+    //       break;
+    //     case "tiles":
+    //     case "palette":
+    //       break;
+
+    //     case "settings":
+    //       setShowSettings(true);
+    //       break;
+    //     case "meta-export":
+    //       /* open export modal */
+    //       break;
+    //   }
+    //   d.drawerOpen = false;
+    //   return d;
+    // });
   }, [mutate]);
 
   // ---------- Palette view ----------
@@ -669,7 +728,7 @@ export default function SNESpriteEditor() {
             <div className="flex flex-row gap-5 justify-center">
 
               {/* Metasprite Editor column */}
-              <div className="flex flex-col gap-[2px]">
+              <div className="flex flex-col gap-1">
                 <div className="flex flex-row justify-between items-center">
                   <span className="text-sm font-bold">Metasprite Editor</span>
 
@@ -784,44 +843,46 @@ export default function SNESpriteEditor() {
                   </div>
                 </div>
 
-                <div className="text-sm font-bold">Palette</div>
 
+                <div className="flex flex-col">
+                  <div className="flex flex-row justify-between items-center">
+                  <div className="text-sm font-bold">Palette</div>
+                  <div className="text-xs">Selected Palette ({s.currentPalette})</div>
+                  </div>
+                  <div className="flex flex-row gap-5 mt-1 justify-start rounded-lg border-2 border-blue-400 p-1">
 
+                    {paletteView}
 
-                <div className="flex flex-row gap-5 mt-1 justify-start rounded-lg border-2 border-blue-400 p-1">
-
-                  {paletteView}
-
-                  <div className="flex flex-col">
-                      <div className="flex flex-row gap-5">
-                        <div className="flex">
-                          <ColorPicker555
-                            value={s.palettes[s.currentPalette][s.currentColor]}
-                            onColorChange={onColorPickerChange}
-                          />
+                    <div className="flex flex-col">
+                        <div className="flex flex-row gap-5">
+                          <div className="flex">
+                            <ColorPicker555
+                              value={s.palettes[s.currentPalette][s.currentColor]}
+                              onColorChange={onColorPickerChange}
+                            />
+                          </div>
+                          <div className="flex flex-row items-center gap-2">
+                            <label>HEX</label>
+                            <input
+                              type="text"
+                              placeholder="0000"
+                              value={s.bgrPalettes[s.currentPalette][s.currentColor]}
+                              onChange={handleBGRChange}
+                              className="w-28 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
+                              title="Enter 4 hex digits (bit15 auto-cleared)"
+                            />
+                            <span className="text-xs text-slate-500">(BGR555)</span>
+                          </div>
                         </div>
-                        <div className="flex flex-row items-center gap-2">
-                          <label>HEX</label>
-                          <input
-                            type="text"
-                            placeholder="0000"
-                            value={s.bgrPalettes[s.currentPalette][s.currentColor]}
-                            onChange={handleBGRChange}
-                            className="w-28 border rounded px-2 py-1 font-mono text-sm uppercase tracking-widest"
-                            title="Enter 4 hex digits (bit15 auto-cleared)"
-                          />
-                        </div>
-                      </div>
 
-                      <div className="flex flex-row mt-1 justify-between w-full">
-                        <ColorChannelInput label="R" value={currentRed} onChange={handleChannel("r")} />
-                        <ColorChannelInput label="G" value={currentGreen} onChange={handleChannel("g")} />
-                        <ColorChannelInput label="B" value={currentBlue} onChange={handleChannel("b")} />
-                      </div>  
-                    </div>            
-
-                </div>                
-                <div className="text-xs">Selected Palette ({s.currentPalette})</div>
+                        <div className="flex flex-row mt-1 justify-between w-full">
+                          <ColorChannelInput label="B" value={currentBlue} onChange={handleChannel("b")} />
+                          <ColorChannelInput label="G" value={currentGreen} onChange={handleChannel("g")} />
+                          <ColorChannelInput label="R" value={currentRed} onChange={handleChannel("r")} />
+                        </div>  
+                      </div>            
+                  </div>                
+                </div>
             </div>
 
               {/* Tilesheet column */}
@@ -863,7 +924,7 @@ export default function SNESpriteEditor() {
                         canPaste={() => s.clipboard !== null}
                       />
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-end">
                       {hydrated && s.selectedTileCell &&(
                         <span className="text-xs">
                           Selected Tile: {tileIndex(s.selectedTileCell?.row ?? 0, s.selectedTileCell?.col ?? 0)}
@@ -914,7 +975,7 @@ export default function SNESpriteEditor() {
                     
                     const style =
                       s.showIndex0Transparency && pix === 0
-                        ? checkerboardStyle(TILE_EDITOR_SCALE) // implied transparency
+                        ? checkerboardStyle() // implied transparency
                         : { background: s.palettes[s.currentPalette][pix] ?? "#000" };
                         
                     const borderColor = 

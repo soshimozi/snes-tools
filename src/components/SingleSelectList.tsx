@@ -271,7 +271,7 @@ const clearDnD = () => {
           const active = i === activeIndex;
 
           const base =
-            "flex items-center justify-between gap-3 rounded-md px-3 py-1 cursor-pointer select-none";
+            "flex items-center justify-between gap-3 rounded-md px-3 py-2 my-1 cursor-pointer select-none";
           const state =
             (opt.disabled ? "opacity-50 cursor-not-allowed " : "") +
             (selected ? "bg-indigo-50 ring-1 ring-indigo-300 " : active ? "bg-slate-100 " : "");

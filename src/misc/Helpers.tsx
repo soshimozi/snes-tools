@@ -453,12 +453,33 @@ export function palettesToBGR555Blob(
 
 export function savePalettes(filename: string, palettes: Palette[], littleEndian: boolean): boolean {
 
-  const { blob, failures } = palettesToBGR555Blob(palettes, {littleEndian});
+  const total = 256; // 8 palettes * 16 colors  
+  const failures: Array<{ palette: number; index: number; value: string }> = [];
+  const buf = new ArrayBuffer(total);
+  const view = new DataView(buf);
+
+  for (let p = 0; p < 8; p++) {
+    const pal = palettes[p] ?? [];
+    for (let i = 0; i < 16; i++) {
+      const word = parseInt(pal[i], 16);
+      if(word === undefined || isNaN(word)) {
+        failures.push({ palette: p, index: i, value: pal[i] ?? '' });
+      }
+
+      //console.log('word', word, pal[i]);
+      //if (!word) failures.push({ palette: p, index: i, value: pal[i] });
+      
+      const flatIndex = p * 16 + i;
+      view.setUint16(flatIndex * 2, word, littleEndian);
+    }
+  }
+
+  const blob = new Blob([buf], { type: "application/octet-stream" });
 
   // Optional: report bad inputs
   if (failures.length) {
-    return false;
     console.warn("Unparseable color indexes:", failures);
+    return false;
   }
 
   // Example save (browser):
@@ -470,10 +491,21 @@ export function savePalettes(filename: string, palettes: Palette[], littleEndian
   URL.revokeObjectURL(url);
   
   return true;
-
-
-
 }
+
+// export function importPalette(littleEndian: boolean): Palette[] {
+
+//   console.log('importPalette');
+
+//   // load the palette file
+//   const input = document.createElement("input");
+//   input.type = "file";
+//   input.accept = ".pal,.bin,.bgr,.bgra,.cgram,.cgrom,.data,.raw,.dat,.palette,.palettes"; 
+//   input.click();
+
+//   return [];
+
+// }
 
 
 export function applyNibbleOp(dst: number, src: number, mode: PasteMode, includeZeroSrc = false): number {
@@ -526,3 +558,89 @@ export function getCheckerPattern(
   return pat;
 }
 
+
+
+/** Parse an ArrayBuffer of raw BGR555 data into palettes of 16 colors. */
+function parseBGR555Buffer(
+  buffer: ArrayBuffer,
+  { littleEndian, colorsPerPalette = 16 }: { littleEndian: boolean; colorsPerPalette?: number }
+): Uint16Array {
+  const bytes = new Uint8Array(buffer);
+
+  if (bytes.length % 2 !== 0) {
+    throw new Error("File size is not a multiple of 2 bytes (each color is 2 bytes).");
+  }
+  const totalColors = bytes.length / 2;
+
+  // Build words with selected endianness
+  const words = new Uint16Array(totalColors);
+  for (let i = 0, w = 0; i < bytes.length; i += 2, w++) {
+    words[w] = littleEndian
+      ? (bytes[i] | (bytes[i + 1] << 8))
+      : ((bytes[i] << 8) | bytes[i + 1]);
+  }
+
+  return words;
+}
+
+/** Opens a file picker and resolves with the selected File, or null if cancelled. */
+function pickFile(accept: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.addEventListener("change", () => {
+      resolve(input.files && input.files[0] ? input.files[0] : null);
+    });
+    input.click();
+  });
+}
+
+/** Read a File as an ArrayBuffer */
+function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(fr.error);
+    fr.onload = () => resolve(fr.result as ArrayBuffer);
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+/**
+ * RECOMMENDED: Async import that shows a file picker and returns palettes.
+ * Returns null if user cancels the picker.
+ */
+export async function importPalettes(littleEndian: boolean): Promise<Uint16Array | null> {
+  const file = await pickFile(".pal,.bin,.bgr,.bgra,.cgram,.cgrom,.data,.raw,.dat,.palette,.palettes");
+  if (!file) return null;
+
+  const buf = await readFileAsArrayBuffer(file);
+  return parseBGR555Buffer(buf, { littleEndian, colorsPerPalette: 16 });
+}
+
+/**
+ * Thin wrapper to keep your original signature shape (sync return),
+ * by accepting a callback. If cancelled or error, callback gets [].
+ */
+export function importPalette(
+  littleEndian: boolean,
+  onLoaded?: (palettes: Uint16Array | undefined) => void,
+  onError?: (err: unknown) => void
+): void {
+  // Use the async function under the hood
+  importPalettes(littleEndian)
+    .then((result) => {
+      if (!result) {
+        console.log('user cancelled');
+        onLoaded?.(undefined); // user cancelled
+        return;
+      }
+      console.log('imported', result.length, 'palettes');
+      onLoaded?.(result);
+    })
+    .catch((e) => {
+      console.error("Failed to import palette:", e);
+      onError?.(e);
+      onLoaded?.(undefined);
+    });
+}

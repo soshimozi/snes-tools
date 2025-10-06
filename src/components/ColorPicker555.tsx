@@ -53,7 +53,7 @@ export default function ColorPicker555Controlled({ value, onColorChange, classNa
   return (
     <div className={`flex flex-col gap-1 max-w-md ${className ?? ""}`}>
       <div className="flex items-center gap-4">
-        <label className="text-sm font-medium">Color picker</label>
+        <label className="text-sm font-medium">RGB Color picker</label>
         <input
           type="color"
           value={normalizedHex}
