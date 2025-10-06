@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import React, { Fragment, use, useCallback, useEffect, useMemo, useState } from "react";
 import { DraggableWindow } from "./DraggableWindow";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -19,14 +19,17 @@ import { Tilesheet } from "./Tilesheet";
 import {
   extractRegionFromTilesheet,
   extractSingleTileFromTilesheet,
+  importAllPalettes,
   importPalette,
+  importSinglePalette,
   indexToRowCol,
   makeBlankTile,
   moveItem,
   parseHexColor,
   produceDeleteRegionInTilesheet,
   producePasteIntoTilesheet,
-  savePalettes,
+  saveBGR555Palette,
+  saveBGR555Palettes,
   tileIndex
 } from "@/misc/Helpers";
 
@@ -542,7 +545,7 @@ export default function SNESpriteEditor() {
     console.log("Picked menu node", node);
 
     if(node.id === "pal-load-full") {
-      importPalette(true, (palettes)=> {
+      importAllPalettes(true, (palettes)=> {
         if(palettes) {
           update(d => {
 
@@ -553,42 +556,37 @@ export default function SNESpriteEditor() {
           });
         }
       });
-      mutate(d => (d.drawerOpen = false, d));
     } else if(node.id ===  "pal-save-full") {
-      console.log("Saving full palette set", s.bgrPalettes);
-      savePalettes("default.pal",  s.bgrPalettes, true);
-      mutate(d => (d.drawerOpen = false, d));
+      saveBGR555Palettes(`${s.exportPrefixes?.palette ?? "default_"}full.pal`,  s.bgrPalettes, true);
+    } else if(node.id ===  "pal-save-cur-full") {
+      saveBGR555Palette(`${s.exportPrefixes?.palette ?? "default_"}${s.currentPalette}.pal`, s.bgrPalettes[s.currentPalette], true);
     } else if(node.id === "sprite") {
       mutate(d=>{
           if (d.selectedTileCell) d.showSpriteEditor = true;
-          d.drawerOpen = false;
           return d;
       });
     } else if(node.id === "settings"){
       setShowSettings(true);
-      mutate(d => (d.drawerOpen = false, d));
+    } else if(node.id === "pal-load-16") {
+      importSinglePalette(true, (palette)=> {
+        if(palette) {
+          update(d => {
+            const filtered = d.palettes.filter((_, i) => i !== d.currentPalette);
+            filtered.splice(d.currentPalette, 0, convertUint16ArrayToHexPalettes(palette)[0])
+            const filteredBgr = d.bgrPalettes.filter((_, i) => i !== d.currentPalette);
+            filteredBgr.splice(d.currentPalette, 0, convertUint16ArrayToBGR555Palettes(palette)[0]);
+
+            d.palettes = [...filtered];
+            d.bgrPalettes = [...filteredBgr];
+            return d;
+          });
+        }
+      });
     }
 
-    // mutate(d => {
-    //   switch (node.id) {
-    //     case "sprite":
-    //       if (d.selectedTileCell) d.showSpriteEditor = true;
-    //       break;
-    //     case "tiles":
-    //     case "palette":
-    //       break;
+    mutate(d => (d.drawerOpen = false, d));
 
-    //     case "settings":
-    //       setShowSettings(true);
-    //       break;
-    //     case "meta-export":
-    //       /* open export modal */
-    //       break;
-    //   }
-    //   d.drawerOpen = false;
-    //   return d;
-    // });
-  }, [mutate]);
+  }, [mutate, s.bgrPalettes, s.exportPrefixes, s.currentPalette, update]);
 
   // ---------- Palette view ----------
   const paletteView = useMemo(
@@ -612,6 +610,18 @@ export default function SNESpriteEditor() {
     </div>),
     [s.palettes, s.currentPalette, s.currentColor, update]
   );
+
+  const currentPalleteIndex = useMemo(() => {
+    if(s.palettes.length === 0) return 0;
+    return Math.min(s.currentPalette, s.palettes.length - 1);
+  }, [s.palettes, s.currentPalette]);
+
+  const currentPalette = useMemo(() => {
+    if(s.palettes.length === 0) return [];
+    return s.palettes[currentPalleteIndex];
+  }, [s.palettes, currentPalleteIndex]); 
+
+  
 
   // ---------- Mouse interactions for pixel painting ----------
   const onCellDown = (x: number, y: number) => (e: React.MouseEvent) => {

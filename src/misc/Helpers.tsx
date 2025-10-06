@@ -451,7 +451,7 @@ export function palettesToBGR555Blob(
   return { blob: new Blob([buf], { type: "application/octet-stream" }), failures };
 }
 
-export function savePalettes(filename: string, palettes: Palette[], littleEndian: boolean): boolean {
+export function saveBGR555Palettes(filename: string, palettes: Palette[], littleEndian: boolean): boolean {
 
   const total = 256; // 8 palettes * 16 colors  
   const failures: Array<{ palette: number; index: number; value: string }> = [];
@@ -461,14 +461,13 @@ export function savePalettes(filename: string, palettes: Palette[], littleEndian
   for (let p = 0; p < 8; p++) {
     const pal = palettes[p] ?? [];
     for (let i = 0; i < 16; i++) {
+      console.log('pal[i]', pal[i]);
+      
       const word = parseInt(pal[i], 16);
       if(word === undefined || isNaN(word)) {
         failures.push({ palette: p, index: i, value: pal[i] ?? '' });
       }
 
-      //console.log('word', word, pal[i]);
-      //if (!word) failures.push({ palette: p, index: i, value: pal[i] });
-      
       const flatIndex = p * 16 + i;
       view.setUint16(flatIndex * 2, word, littleEndian);
     }
@@ -483,13 +482,50 @@ export function savePalettes(filename: string, palettes: Palette[], littleEndian
   }
 
   // Example save (browser):
+  saveBlob(filename, blob);
+  return true;
+}
+
+function saveBlob(filename: string, blob: Blob) {
+  
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
+
   a.href = url;
-  a.download = filename; //"palette_bgr555.pal";
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export function saveBGR555Palette(filename: string, palette: Palette, littleEndian: boolean): boolean {
+
+  const total = 16 * 2;
+  const failures: Array<{ index: number; value: string }> = [];
+  const buf = new ArrayBuffer(total);
+  const view = new DataView(buf);
+
+    for (let i = 0; i < 16; i++) {
+      
+      const word = parseInt(palette[i], 16);
+
+      if(word === undefined || isNaN(word)) {
+        failures.push({ index: i, value: palette[i] ?? '' });
+      }
+
+      view.setUint16(i * 2, word, littleEndian);
+    }
   
+
+  const blob = new Blob([buf], { type: "application/octet-stream" });
+
+  // Optional: report bad inputs
+  if (failures.length) {
+    console.warn("Unparseable color indexes:", failures);
+    return false;
+  }
+
+
+  saveBlob(filename, blob);
   return true;
 }
 
@@ -560,7 +596,7 @@ export function getCheckerPattern(
 
 
 
-/** Parse an ArrayBuffer of raw BGR555 data into palettes of 16 colors. */
+/** Parse an ArrayBuffer of raw BGR555 data into raw Uint16Array */
 function parseBGR555Buffer(
   buffer: ArrayBuffer,
   { littleEndian, colorsPerPalette = 16 }: { littleEndian: boolean; colorsPerPalette?: number }
@@ -618,11 +654,20 @@ export async function importPalettes(littleEndian: boolean): Promise<Uint16Array
   return parseBGR555Buffer(buf, { littleEndian, colorsPerPalette: 16 });
 }
 
+
+export async function importPalette(littleEndian: boolean): Promise<Uint16Array | null> {
+  const file = await pickFile(".pal,.bin,.bgr,.bgra,.cgram,.cgrom,.data,.raw,.dat,.palette,.palettes");
+  if (!file) return null;
+
+  const buf = await readFileAsArrayBuffer(file);
+  return parseBGR555Buffer(buf, { littleEndian, colorsPerPalette: 16 });
+}
+
 /**
  * Thin wrapper to keep your original signature shape (sync return),
  * by accepting a callback. If cancelled or error, callback gets [].
  */
-export function importPalette(
+export function importAllPalettes(
   littleEndian: boolean,
   onLoaded?: (palettes: Uint16Array | undefined) => void,
   onError?: (err: unknown) => void
@@ -644,3 +689,28 @@ export function importPalette(
       onLoaded?.(undefined);
     });
 }
+
+export function importSinglePalette(
+  littleEndian: boolean,
+  onLoaded?: (palette: Uint16Array | undefined) => void,
+  onError?: (err: unknown) => void
+): void {
+  // Use the async function under the hood
+  importPalette(littleEndian)
+    .then((result) => {
+      if (!result) {
+        console.log('user cancelled');
+        onLoaded?.(undefined); // user cancelled
+        return;
+      }
+      console.log('imported', result.length, 'colors');
+      onLoaded?.(result);
+    })
+    .catch((e) => {
+      console.error("Failed to import palette:", e);
+      onError?.(e);
+      onLoaded?.(undefined);
+    });
+}
+
+// EOF  
