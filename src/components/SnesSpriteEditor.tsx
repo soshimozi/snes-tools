@@ -44,7 +44,7 @@ import { DrawerMenu } from "./DrawerMenu";
 
 import { useUndoableState } from "@/hooks/useUndoableState";
 import { buildInitialDoc } from "@/state/buildInitialDoc";
-import { EditorDoc, PasteMode, toolIcon } from "@/state/EditorDoc";
+import { EditorDoc, PasteMode, toolIcon, toolLabel } from "@/state/EditorDoc";
 import ColorChannelInput from "./ColorChannelSlider";
 import Modal from "./Modal";
 
@@ -1057,6 +1057,20 @@ export default function SNESpriteEditor() {
         onClose={() => update(d => (d.showSpriteEditor = false, d))}
       >
         <div className="flex flex-col">
+                      {/* Tool buttons */}
+            <div className="flex flex-row justify-between h-fit mb-1">
+              {(["brush", "fill", "picker", "eraser"] as const).map(tl => (
+                <button
+                  key={tl}
+                  title={toolLabel[tl]}
+                  onClick={() => update(d => (d.tool = tl, d))}
+                  className={`p-1 rounded-md w-[48px] h-[48px] text-lg ${s.tool === tl ? "bg-blue-600 text-white" : "bg-transparent hover:bg-slate-100"}`}
+                >
+                  <FontAwesomeIcon icon={toolIcon[tl]} />
+                </button>
+              ))}
+            </div>
+
           <div className="flex flex-row gap-2">
 
             {/* ---------------- NEW: Multi-tile canvas ---------------- */}
@@ -1101,38 +1115,13 @@ export default function SNESpriteEditor() {
                 )}
               </div>
 
-              {/* ---------------- NEW: UI toggles under canvas ---------------- */}
-              <div className="flex items-center gap-3 mt-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={paintAcrossSelection}
-                    onChange={(e) => setPaintAcrossSelection(e.target.checked)}
-                  />
-                  Apply brush/eraser/fill to all tiles in selection
-                </label>
-                <span className="text-xs text-slate-500">
-                  Region: {regionCols}×{regionRows} • Cell: {dynamicCell}px
-                </span>
-              </div>
             </div>
 
-            {/* Tool buttons */}
-            <div className="flex flex-col justify-between h-[256px]">
-              {(["brush", "fill", "picker", "eraser"] as const).map(tl => (
-                <button
-                  key={tl}
-                  onClick={() => update(d => (d.tool = tl, d))}
-                  className={`p-1 rounded-md w-[48px] h-[48px] text-lg ${s.tool === tl ? "bg-blue-600 text-white" : "bg-transparent hover:bg-slate-100"}`}
-                >
-                  <FontAwesomeIcon icon={toolIcon[tl]} />
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Pixel transforms (now selection-aware) */}
-          <div className="flex flex-col gap-1 select-none">
+          <div className="flex flex-col gap-0 select-none">
+          <div className="flex flex-col select-none">
             <div className="text-md text-[#222222]">Shift Pixels&nbsp;
               <button title="Shift up" className="p-1 rounded-md hover:bg-blue-100 active:bg-blue-200"
                       onClick={() => shiftPixels(0, -1)}>
@@ -1153,7 +1142,7 @@ export default function SNESpriteEditor() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-1 select-none">
+          <div className="flex flex-col select-none">
             <div className="text-md text-[#222222]">Rotate&nbsp;
               <button onClick={rotateTileCCW} className="p-1 rounded-md hover:bg-blue-100 active:bg-blue-200" title="Rotate Left (90° CCW)">
                 <FontAwesomeIcon className="text-[#333333]" icon={faRotateBackward} />
@@ -1164,7 +1153,7 @@ export default function SNESpriteEditor() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-1 select-none">
+          <div className="flex flex-col select-none">
             <div className="text-md text-[#222222]">Flip&nbsp;
               <button onClick={flipTileH} className="p-1 rounded-md hover:bg-blue-100 active:bg-blue-200" title="Flip Horizontal">
                 <FontAwesomeIcon className="text-[#333333]" icon={faArrowsLeftRight} />
@@ -1173,6 +1162,7 @@ export default function SNESpriteEditor() {
                 <FontAwesomeIcon className="text-[#333333]" icon={faArrowsUpDown} />
               </button>
             </div>
+          </div>
           </div>
         </div>
       </DraggableWindow>
