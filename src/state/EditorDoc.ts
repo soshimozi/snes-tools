@@ -18,6 +18,13 @@ export const toolIcon: Record<ToolType, IconDefinition> = {
   eraser: faEraser,
 };
 
+export const toolLabel: Record<ToolType, string> = {
+  brush: "Brush",
+  fill: "Fill",
+  picker: "Color Picker",
+  eraser: "Eraser",
+};
+
 export type EditorDoc = {
   version: 1;
 
