@@ -100,14 +100,26 @@ export default function SNESpriteEditor() {
     hydrated
   } = useUndoableState<EditorDoc>(buildInitialDoc, { storageKey: STORAGE_KEY, limit: 200 });
 
-  // ---------------- NEW: selection-apply toggle ----------------
-  const [paintAcrossSelection, setPaintAcrossSelection] = useState(false);
+    // ---------------- NEW: selection-apply toggle ----------------
+    const [paintAcrossSelection, setPaintAcrossSelection] = useState(false);
 
-  const isStrokingRef = useRef(false);
-  // ---------------- NEW: remember which tile we last edited (for single-tile transforms) -------------
-  const lastEditedTileIndexRef = useRef<number | null>(null);
+    const isStrokingRef = useRef(false);
+    // ---------------- NEW: remember which tile we last edited (for single-tile transforms) -------------
+    const lastEditedTileIndexRef = useRef<number | null>(null);
 
-  const [showSettings, setShowSettings] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+
+  // --- NEW (Shapes) --- drawing tools local state
+  type ShapeTool = "none" | "line" | "rect" | "rect-fill" | "circle" | "circle-fill";
+  const [shapeTool, setShapeTool] = useState<ShapeTool>("none");
+
+  // Tracks the starting mosaic pixel (global within the selection grid)
+  const shapeStartRef = useRef<{gx: number; gy: number} | null>(null);
+
+  // Pending preview pixels as global mosaic coords "gx,gy"
+  const [pendingPixels, setPendingPixels] = useState<Set<string>>(new Set());
+
+
 
   // --- Keyboard shortcuts
   useEffect(() => {
@@ -202,6 +214,115 @@ export default function SNESpriteEditor() {
   const regionRows = tileGrid.length || 1;
   const maxCells = 8 * Math.max(regionCols, regionRows);
   const dynamicCell = Math.max(MIN_CELL, Math.floor(MAX_VIEWPORT_PX / Math.max(1, maxCells)));
+
+  // Build RGBA preview from current palette color
+  const previewRGBA = useMemo(() => {
+    const c = parseHexColor(s.palettes[s.currentPalette][s.currentColor]);
+    if (!c) return "rgba(0,0,0,0.35)";
+    return `rgba(${c.r},${c.g},${c.b},0.45)`; // semi-transparent
+  }, [s.palettes, s.currentPalette, s.currentColor]);
+
+  // Mosaic dimensions (in pixels), given the selected region
+  const mosaicW = regionCols * 8;
+  const mosaicH = regionRows * 8;
+
+  // Convert between mosaic (global) and per-tile pixel
+  const toTileCoord = (gx: number, gy: number) => {
+    const tileGX = Math.floor(gx / 8);
+    const tileGY = Math.floor(gy / 8);
+    const px = gx % 8;
+    const py = gy % 8;
+    // clamp safety
+    if (tileGY < 0 || tileGY >= regionRows || tileGX < 0 || tileGX >= regionCols) return null;
+    const tIndex = tileGrid[tileGY][tileGX];
+    return { tIndex, px, py };
+  };
+
+  const keyOf = (gx: number, gy: number) => `${gx},${gy}`;  
+
+  // --- NEW (Shapes) --- rasterizers (all inclusive coords, clamped to mosaic)
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+  function plotLine(x0: number, y0: number, x1: number, y1: number, w: number, h: number): Array<[number, number]> {
+    x0 = clamp(x0, 0, w - 1); y0 = clamp(y0, 0, h - 1);
+    x1 = clamp(x1, 0, w - 1); y1 = clamp(y1, 0, h - 1);
+    const pts: Array<[number, number]> = [];
+    let dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    let dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy;
+    while (true) {
+      pts.push([x0, y0]);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+    return pts;
+  }
+
+  function plotRect(x0: number, y0: number, x1: number, y1: number, w: number, h: number, fill = false): Array<[number, number]> {
+    let left = Math.min(x0, x1), right = Math.max(x0, x1);
+    let top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+    left = clamp(left, 0, w - 1); right = clamp(right, 0, w - 1);
+    top = clamp(top, 0, h - 1); bottom = clamp(bottom, 0, h - 1);
+    const pts: Array<[number, number]> = [];
+    if (fill) {
+      for (let y = top; y <= bottom; y++) for (let x = left; x <= right; x++) pts.push([x, y]);
+    } else {
+      for (let x = left; x <= right; x++) { pts.push([x, top]); pts.push([x, bottom]); }
+      for (let y = top; y <= bottom; y++) { pts.push([left, y]); pts.push([right, y]); }
+    }
+    return pts;
+  }
+
+  function plotCircleBox(x0: number, y0: number, x1: number, y1: number, w: number, h: number, fill = false): Array<[number, number]> {
+    // Use the bounding box’s min side as the diameter
+    const cx = Math.round((x0 + x1) / 2);
+    const cy = Math.round((y0 + y1) / 2);
+    const rx = Math.abs(x1 - x0) / 2;
+    const ry = Math.abs(y1 - y0) / 2;
+    const r = Math.round(Math.max(1, Math.min(rx, ry)));
+    return plotCircle(cx, cy, r, w, h, fill);
+  }
+
+  function plotCircle(cx: number, cy: number, r: number, w: number, h: number, fill = false): Array<[number, number]> {
+    const pts: Array<[number, number]> = [];
+    let x = r, y = 0, err = 1 - x;
+
+    const push4 = (px: number, py: number) => {
+      const q = [
+        [cx + px, cy + py], [cx - px, cy + py],
+        [cx + px, cy - py], [cx - px, cy - py],
+      ] as Array<[number, number]>;
+      for (const [gx, gy] of q) if (gx >= 0 && gy >= 0 && gx < w && gy < h) pts.push([gx, gy]);
+    };
+
+    const pushHSpan = (x0: number, x1: number, y: number) => {
+      const L = clamp(Math.min(x0, x1), 0, w - 1);
+      const R = clamp(Math.max(x0, x1), 0, w - 1);
+      if (y < 0 || y >= h) return;
+      for (let x = L; x <= R; x++) pts.push([x, y]);
+    };
+
+    while (x >= y) {
+      if (fill) {
+        // Fill using horizontal spans between symmetric points
+        pushHSpan(cx - x, cx + x, cy + y);
+        if (y !== 0) pushHSpan(cx - x, cx + x, cy - y);
+        if (x !== y) {
+          pushHSpan(cx - y, cx + y, cy + x);
+          if (x !== 0) pushHSpan(cx - y, cx + y, cy - x);
+        }
+      } else {
+        push4(x, y);
+        if (x !== y) push4(y, x);
+      }
+      y++;
+      if (err < 0) err += 2 * y + 1;
+      else { x--; err += 2 * (y - x + 1); }
+    }
+    return pts;
+  }
 
   // ---------- Painting ops (tile-aware) ----------
   const setPixelAt = useCallback((tileIndex0: number, x: number, y: number, value: number) => {
@@ -652,42 +773,137 @@ export default function SNESpriteEditor() {
   }, [s.palettes, currentPalleteIndex]);
 
   // ---------- Mouse interactions for pixel painting (tile-aware) ----------
+  // const onPixelDown = (tileIndex0: number, px: number, py: number) => (e: React.MouseEvent) => {
+  //   e.preventDefault();
+
+  //   isStrokingRef.current = true;
+  //   lastEditedTileIndexRef.current = tileIndex0; // remember for transforms
+  //   checkpoint();
+
+  //   const rightClick = (e.button === 2 || e.buttons === 2);
+
+  //   if (rightClick || s.tool === "eraser") {
+  //     if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, 0));
+  //     else setPixelAt(tileIndex0, px, py, 0);
+  //     return;
+  //   }
+
+  //   if (s.tool === "picker") {
+  //     const picked = s.tilesheets[s.currentTilesheet].tiles[tileIndex0][py][px];
+  //     mutate(d => { d.currentColor = picked; return d; });
+  //     return;
+  //   }
+
+  //   if (s.tool === "fill") {
+  //     if (paintAcrossSelection) forEachSelectedTile(ti => floodFillTile(ti, px, py, undefined, s.currentColor));
+  //     else floodFillTile(tileIndex0, px, py, undefined, s.currentColor);
+  //     return;
+  //   }
+
+  //   // brush
+  //   if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, s.currentColor));
+  //   else setPixelAt(tileIndex0, px, py, s.currentColor);
+  // };
+
+  // const onPixelMove = (tileIndex0: number, px: number, py: number) => (e: React.MouseEvent) => {
+  //   if (!isStrokingRef.current) return;
+  //   if (e.buttons !== 1) return;
+
+  //   if (s.tool === "brush") {
+  //     if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, s.currentColor));
+  //     else setPixelAt(tileIndex0, px, py, s.currentColor);
+  //   } else if (s.tool === "eraser") {
+  //     if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, 0));
+  //     else setPixelAt(tileIndex0, px, py, 0);
+  //   }
+  // };
+
+  // const stopStroke = () => { isStrokingRef.current = false; };
+
+// --- REPLACE handlers with shape-aware logic ---
+
   const onPixelDown = (tileIndex0: number, px: number, py: number) => (e: React.MouseEvent) => {
     e.preventDefault();
-
     isStrokingRef.current = true;
-    lastEditedTileIndexRef.current = tileIndex0; // remember for transforms
     checkpoint();
+    lastEditedTileIndexRef.current = tileIndex0;
 
+    // Compute mosaic (global) start
+    // Find tile’s position in grid: we need (gx, gy) = global pixel in region mosaic
+    const findTileGridPos = () => {
+      // scan to locate tileIndex0 in tileGrid (small matrix; overhead negligible)
+      for (let gy = 0; gy < regionRows; gy++) {
+        for (let gx = 0; gx < regionCols; gx++) {
+          if (tileGrid[gy][gx] === tileIndex0) return { gx, gy };
+        }
+      }
+      return { gx: 0, gy: 0 };
+    };
+    const { gx: tCol, gy: tRow } = findTileGridPos();
+    const gStartX = tCol * 8 + px;
+    const gStartY = tRow * 8 + py;
+
+    if (shapeTool !== "none") {
+      shapeStartRef.current = { gx: gStartX, gy: gStartY };
+      setPendingPixels(new Set([keyOf(gStartX, gStartY)]));
+      return;
+    }
+
+    // --- legacy paint when not in shape mode ---
     const rightClick = (e.button === 2 || e.buttons === 2);
-
     if (rightClick || s.tool === "eraser") {
       if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, 0));
       else setPixelAt(tileIndex0, px, py, 0);
       return;
     }
-
     if (s.tool === "picker") {
       const picked = s.tilesheets[s.currentTilesheet].tiles[tileIndex0][py][px];
       mutate(d => { d.currentColor = picked; return d; });
       return;
     }
-
     if (s.tool === "fill") {
       if (paintAcrossSelection) forEachSelectedTile(ti => floodFillTile(ti, px, py, undefined, s.currentColor));
       else floodFillTile(tileIndex0, px, py, undefined, s.currentColor);
       return;
     }
-
-    // brush
     if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, s.currentColor));
     else setPixelAt(tileIndex0, px, py, s.currentColor);
   };
 
   const onPixelMove = (tileIndex0: number, px: number, py: number) => (e: React.MouseEvent) => {
     if (!isStrokingRef.current) return;
-    if (e.buttons !== 1) return;
 
+    // Shape rubber-band preview
+    if (shapeTool !== "none" && shapeStartRef.current) {
+      // Current mosaic coord:
+      const findTileGridPos = () => {
+        for (let gy = 0; gy < regionRows; gy++) {
+          for (let gx = 0; gx < regionCols; gx++) {
+            if (tileGrid[gy][gx] === tileIndex0) return { gx, gy };
+          }
+        }
+        return { gx: 0, gy: 0 };
+      };
+      const { gx: tCol, gy: tRow } = findTileGridPos();
+      const gx = tCol * 8 + px;
+      const gy = tRow * 8 + py;
+
+      const sx = shapeStartRef.current.gx;
+      const sy = shapeStartRef.current.gy;
+
+      let pts: Array<[number, number]> = [];
+      if (shapeTool === "line") pts = plotLine(sx, sy, gx, gy, mosaicW, mosaicH);
+      else if (shapeTool === "rect") pts = plotRect(sx, sy, gx, gy, mosaicW, mosaicH, false);
+      else if (shapeTool === "rect-fill") pts = plotRect(sx, sy, gx, gy, mosaicW, mosaicH, true);
+      else if (shapeTool === "circle") pts = plotCircleBox(sx, sy, gx, gy, mosaicW, mosaicH, false);
+      else if (shapeTool === "circle-fill") pts = plotCircleBox(sx, sy, gx, gy, mosaicW, mosaicH, true);
+
+      setPendingPixels(new Set(pts.map(([x, y]) => keyOf(x, y))));
+      return;
+    }
+
+    // Legacy continuous brush/eraser
+    if (e.buttons !== 1) return;
     if (s.tool === "brush") {
       if (paintAcrossSelection) forEachSelectedTile(ti => setPixelAt(ti, px, py, s.currentColor));
       else setPixelAt(tileIndex0, px, py, s.currentColor);
@@ -697,7 +913,30 @@ export default function SNESpriteEditor() {
     }
   };
 
-  const stopStroke = () => { isStrokingRef.current = false; };
+  const stopStroke = () => {
+    if (!isStrokingRef.current) return;
+    isStrokingRef.current = false;
+
+    // Commit shape
+    if (shapeTool !== "none" && shapeStartRef.current && pendingPixels.size) {
+      const color = s.currentColor; // commit as current color
+      update(d => {
+        const tiles = d.tilesheets[d.currentTilesheet].tiles.map(t => t.map(r => r.slice()));
+        pendingPixels.forEach(k => {
+          const [gx, gy] = k.split(",").map(n => parseInt(n, 10));
+          const tc = toTileCoord(gx, gy);
+          if (!tc) return;
+          tiles[tc.tIndex][tc.py][tc.px] = color & 0xF;
+        });
+        d.tilesheets[d.currentTilesheet].tiles = tiles;
+        return d;
+      });
+    }
+
+    // Clear shape session
+    shapeStartRef.current = null;
+    setPendingPixels(new Set());
+  };  
 
   // ---------- Transform buttons (apply to region or last edited tile) ----------
   const applyTransform = (fn: (src: Tile) => Tile) => {
@@ -1070,7 +1309,25 @@ export default function SNESpriteEditor() {
                 </button>
               ))}
             </div>
-
+            <div className="mt-2 grid grid-cols-2 gap-1 w-[110px]">
+              {([
+                { id: "line", label: "Line" },
+                { id: "rect", label: "Rect" },
+                { id: "rect-fill", label: "Rect ■" },
+                { id: "circle", label: "Circle" },
+                { id: "circle-fill", label: "Circle ■" },
+                { id: "none", label: "✕ Shapes" },
+              ] as Array<{id: ShapeTool; label: string}>).map(btn => (
+                <button
+                  key={btn.id}
+                  onClick={() => setShapeTool(btn.id)}
+                  className={`px-2 py-1 rounded text-xs ${shapeTool === btn.id ? "bg-blue-600 text-white" : "bg-transparent hover:bg-slate-100"}`}
+                  title={btn.id === "none" ? "Exit shape mode" : `Draw ${btn.label}`}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
           <div className="flex flex-row gap-2">
 
             {/* ---------------- NEW: Multi-tile canvas ---------------- */}
@@ -1092,11 +1349,26 @@ export default function SNESpriteEditor() {
 
                       // Emit 8 pixels across this tile scanline (px = 0..7)
                       return row.map((pix, px) => {
+
                         const style =
                           s.showIndex0Transparency && pix === 0
                             ? checkerboardStyle(dynamicCell)
                             : { background: s.palettes[s.currentPalette][pix] ?? "#000" };
 
+                        // Global mosaic coords for preview overlay
+                        // const gX = gx * 8 + px;
+                        // const gY = gy * 8 + py;
+                        // const isPreview = pendingPixels.has(`${gX},${gY}`);
+
+                        // const baseStyle =
+                        //   s.showIndex0Transparency && pix === 0
+                        //     ? checkerboardStyle(dynamicCell) // scaled checkerboard
+                        //     : { background: s.palettes[s.currentPalette][pix] ?? "#000" };
+
+                        // // If pixel is part of a live shape preview, overlay a translucent color
+                        // const style = isPreview
+                        //   ? { ...baseStyle, background: previewRGBA }
+                        //   : baseStyle;                        
                         const borderColor = s.showIndex0Transparency ? "border-yellow-200" : "border-slate-300";
 
                         return (
